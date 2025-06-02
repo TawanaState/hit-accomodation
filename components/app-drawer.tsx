@@ -14,6 +14,9 @@ import {
   X,
   Activity,
   Settings,
+  Building,
+  Home,
+  DollarSign,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,7 +68,6 @@ export function AppDrawer({ children }: { children: React.ReactNode }) {
     setIsOpen(false); // Close the drawer
     router.push(href); // Navigate to the selected link
   };
-
   const navigationItems = React.useMemo(() => {
     if (!userRole) return [];
 
@@ -74,21 +76,25 @@ export function AppDrawer({ children }: { children: React.ReactNode }) {
     if (userRole === "user") {
       items.push(
         { title: "Profile", icon: UserRound, href: "/student/profile" },
-        { title: "Application", icon: SquareArrowOutUpRightIcon, href: "/student/application" }
+        { title: "Application", icon: SquareArrowOutUpRightIcon, href: "/student/application" },
+        { title: "Room Selection", icon: Home, href: "/student/room-selection" },
+        { title: "Payments", icon: DollarSign, href: "/student/payments" }
       );
     } else if (userRole === "admin") {
       items.push(
         { title: "Accounts", icon: Users, href: "/admin/accounts" },
         { title: "Applications", icon: Inbox, href: "/admin/applications" },
         { title: "Accepted", icon: CircleCheck, href: "/admin/accepted" },
-        { title: "Archived", icon: Archive, href: "/admin/archived" },
+        { title: "Hostels", icon: Building, href: "/admin/hostels" },
+        { title: "Payments", icon: DollarSign, href: "/admin/payments" },
+        // { title: "Archived", icon: Archive, href: "/admin/archived" },
         { title: "Activity logs", icon: Activity, href: "/admin/logs" },
         {title: "Settings", icon: Settings, href: "/admin/settings"}
       );
     }
 
     // Common items
-    items.push({ title: "Published", icon: CloudUpload, href: "/accepted-students" });
+    // items.push({ title: "Published", icon: CloudUpload, href: "/accepted-students" });
 
     return items;
   }, [userRole]);
@@ -96,22 +102,21 @@ export function AppDrawer({ children }: { children: React.ReactNode }) {
   if (loading || !userRole) {
     return null;
   }
-
   return (
-    <>
+    <div className="flex flex-col h-screen w-screen">
       {/* Header */}
-      <header className="fixed top-0 left-0 w-full h-16 bg-blue-900 text-white shadow z-50 flex items-center px-4 md:hidden">
+      <header className="h-16 bg-blue-900 text-white shadow z-50 flex items-center px-4 flex-shrink-0">
         {/* Drawer Toggle Button (Only visible on small screens) */}
         <Button
           variant="ghost"
           onClick={toggleDrawer}
-          className="flex items-center space-x-2 md:hidden"
+          className="flex items-center space-x-2"
         >
           <Menu className="h-10 w-10" />
         </Button>
 
         {/* App Title */}
-        <h1 className="ml-4 text-xl font-semibold">REZ Portal</h1>
+        <h1 className="ml-4 text-xl font-semibold">Res Portal</h1>
 
         {/* Right side - Placeholder */}
         <div className="ml-auto flex items-center space-x-4">
@@ -177,12 +182,10 @@ export function AppDrawer({ children }: { children: React.ReactNode }) {
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>
-      </div>
-
-      {/* Overlay to close the drawer */}
+      </div>      {/* Overlay to close the drawer */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          className="fixed inset-0 bg-black bg-opacity-50 z-40"
           onClick={toggleDrawer}
           role="button"
           tabIndex={-1}
@@ -190,9 +193,9 @@ export function AppDrawer({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Content */}
-      <main className="pt-16">
-        <div className="w-full h-full">{children}</div>
+      <main className="flex-1 h-full overflow-auto">
+        <div className="w-full h-full p-4">{children}</div>
       </main>
-    </>
+    </div>
   );
 }

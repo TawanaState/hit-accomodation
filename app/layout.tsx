@@ -5,6 +5,8 @@ import { ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 const inter = Inter({ subsets: ["latin"] });
 import { AuthProvider } from "@/components/auth-provider";
+import { PaymentSchedulerInit } from "@/components/payment-scheduler-init";
+import { HostelInitializer } from "@/components/hostel-initializer";
 
 export const metadata: Metadata = {
   title: "HIT accomodation portal",
@@ -17,9 +19,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body>
+    <html lang="en">      <body>
         <AuthProvider>
+          <PaymentSchedulerInit />
+          <HostelInitializer />
           <ToastContainer />
           <main className="w-full h-screen">
             

@@ -1,18 +1,18 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { BarChart2, Users, PieChart, Printer, Upload, DollarSign, Check } from 'lucide-react';
+import { BarChart2, Users, PieChart, Printer, Upload, Home, MapPin } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { getAuth } from "firebase/auth";
 import { fetchAllApplications } from "@/data/firebase-data";
+import { fetchStudentAllocations, getRoomDetailsFromAllocation } from "@/data/hostel-data";
 import { setDoc, collection, getFirestore, doc, getDocs, deleteDoc } from "firebase/firestore";
 import { Pie, Bar } from "react-chartjs-2";
 import { Chart as ChartJS, Title, Tooltip, Legend, ArcElement, CategoryScale, LinearScale, BarElement } from "chart.js";
 import { toast } from "react-toastify";
 import { generateExcelFile } from "@/utils/generate_xl"; // Ensure correct import path
-import PaymentStatusModal from "./payment-modal"; // Import the modal component
 import { Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
 
 // Register ChartJS components
@@ -20,7 +20,7 @@ ChartJS.register(Title, Tooltip, Legend, ArcElement, CategoryScale, LinearScale,
 
 
 const Skeleton = ({ rows = 5 }) => (
-  <div className="w-full max-w-6xl mx-auto p-4">
+  <div className="w-full max-w-5xl mx-auto p-4">
     {[...Array(rows)].map((_, index) => (
       <div key={index} className="animate-pulse flex space-x-4 mb-4">
         <div className="h-6 bg-gray-200 rounded w-1/4"></div>
@@ -34,11 +34,11 @@ const Skeleton = ({ rows = 5 }) => (
 
 const StatisticsSkeleton = () => (
   <>
-    <div className="max-w-6xl mx-auto mb-4 pt-10">
+    <div className="max-w-5xl mx-auto mb-4 pt-10">
     <div className="h-8 bg-gray-200 rounded w-1/4 animate-pulse mx-auto pt-10"></div>
      
     </div>
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 max-w-6xl mx-auto mb-4 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-sm">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 max-w-5xl mx-auto mb-4 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-sm">
       {[...Array(3)].map((_, index) => (
         <div key={index} className="bg-white p-4 rounded-lg shadow-sm animate-pulse">
           <div className="h-4 bg-gray-200 rounded w-1/2 mb-3"></div>
@@ -56,15 +56,17 @@ const Accepted = () => {
   const [applications, setApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [publishing, setPublishing] = useState<boolean>(false);
-  const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [hostelDetails, setHostelDetails] = useState<{[key: string]: {hostelName: string, roomNumber: string, floor: string}}>({});
 
   useEffect(() => {
     const fetchApplications = async () => {
       try {
         const apps = await fetchAllApplications();
         setApplications(apps);
+        
+        // Load hostel details for accepted applications
+        await loadHostelDetails(apps.filter(app => app.status === "Accepted"));
       } catch (error) {
         console.error("Error fetching applications:", error);
       } finally {
@@ -74,6 +76,42 @@ const Accepted = () => {
 
     fetchApplications();
   }, []);
+
+  const loadHostelDetails = async (acceptedApps: any[]) => {
+    try {
+      const details: {[key: string]: {hostelName: string, roomNumber: string, floor: string}} = {};
+      
+      for (const app of acceptedApps) {
+        try {
+          const allocations = await fetchStudentAllocations(app.regNumber);
+          if (allocations.length > 0) {
+            const allocation = allocations[0]; // Get the most recent allocation
+            const roomDetails = await getRoomDetailsFromAllocation(allocation);
+            
+            if (roomDetails) {
+              details[app.regNumber] = {
+                hostelName: roomDetails.hostel.name,
+                roomNumber: roomDetails.room.number,
+                floor: roomDetails.room.floor
+              };
+            }
+          }
+        } catch (error) {
+          console.error(`Error loading hostel details for ${app.regNumber}:`, error);
+          // Set default values if allocation not found
+          details[app.regNumber] = {
+            hostelName: "Not Allocated",
+            roomNumber: "-",
+            floor: "-"
+          };
+        }
+      }
+      
+      setHostelDetails(details);
+    } catch (error) {
+      console.error("Error loading hostel details:", error);
+    }
+  };
 
   const acceptedApplications = useMemo(() => {
     return applications.filter(
@@ -153,47 +191,41 @@ const Accepted = () => {
       });
   
     window.print();
-  };
-
-  const handleExportExcel = () => {
-    const headers = ['Name', 'Email', 'Registration Number', 'Gender', 'Programme', 'Payment', 'Reference'];
-    const data = acceptedApplications.map(app => ({
-      name: app.name,
-      email: app.email,
-      registration_number: app.regNumber,
-      gender: app.gender,
-      programme: app.programme,
-      payment: app.paymentStatus,
-      reference: app.reference,
-    }));
+  };  const handleExportExcel = () => {
+    const headers = ['Name', 'Email', 'Registration Number', 'Gender', 'Programme', 'Hostel', 'Room Number', 'Floor'];
+    const data = acceptedApplications.map(app => {
+      const hostelInfo = hostelDetails[app.regNumber] || { hostelName: 'Not Allocated', roomNumber: '-', floor: '-' };
+      return {
+        name: app.name,
+        email: app.email,
+        registration_number: app.regNumber,
+        gender: app.gender,
+        programme: app.programme,
+        hostel: hostelInfo.hostelName,
+        room_number: hostelInfo.roomNumber,
+        floor: hostelInfo.floor,
+      };
+    });
   
     generateExcelFile({
       headers,
       data,
-      fileName: 'Accepted_Applications.xlsx',
+      fileName: 'Accepted_Applications_With_Hostel_Details.xlsx',
     });
   
     toast.success('Excel file generated successfully!');
   };
 
   const handleOpenModal = (student: any) => {
-  
-    setSelectedStudent(student);
-    setIsModalOpen(true);
+    // This function is no longer needed but kept for compatibility
   };
 
   const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setSelectedStudent(null);
+    // This function is no longer needed but kept for compatibility
   };
+
   const handlePaymentStatusUpdate = (updatedStudent: any) => {
-    setApplications((prevApplications) =>
-      prevApplications.map((app) =>
-        app.regNumber === updatedStudent.regNumber
-          ? { ...app, paymentStatus: updatedStudent.paymentStatus }
-          : app
-      )
-    );
+    // This function is no longer needed but kept for compatibility
   };
   
 
@@ -253,11 +285,11 @@ const partData = {
   }
 
   return (
-    <div className="w-full h-full bg-white p-8 rounded-lg shadow-sm">
+    <div className="w-full h-full bg-white p-8 rounded-lg shadow-sm overflow-auto">
       <h2 className="text-3xl font-bold mb-6 text-center">Accepted Applications</h2>
 
       {/* Statistics */}
-      <div className="max-w-6xl mx-auto mb-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-sm">
+      <div className="max-w-5xl mx-auto mb-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-sm">
         <h3 className="text-2xl font-semibold mb-4 text-center text-gray-800">Application Statistics</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-lg shadow-sm">
@@ -302,7 +334,7 @@ const partData = {
       </div>
 
       {/* Search, Print, and Publish */}
-      <div className="max-w-6xl mx-auto mb-6 flex flex-col gap-4 sm:flex-row sm:items-center">
+      <div className="max-w-5xl mx-auto mb-6 flex flex-col gap-4 sm:flex-row sm:items-center">
         <Input
           placeholder="Search by name or registration number..."
           value={searchQuery}
@@ -329,62 +361,54 @@ const partData = {
           <Button onClick={() => setConfirmDialogOpen(false)} className="bg-gray-400">Cancel</Button>
           <Button onClick={handlePublish} className="bg-green-600 hover:bg-green-700">Confirm</Button>
         </DialogActions>
-      </Dialog>
-
-      {/* Table */}
-      <Table className="max-w-6xl mx-auto border-separate border-spacing-y-2">
+      </Dialog>      {/* Table */}
+      <Table className="max-w-5xl mx-auto border-separate border-spacing-y-2">
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Reg Number</TableHead>
             <TableHead>Gender</TableHead>
             <TableHead>Part</TableHead>
-            <TableHead>Actions</TableHead>
+            <TableHead>Hostel</TableHead>
+            <TableHead>Room</TableHead>
+            <TableHead>Floor</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {acceptedApplications.map((app) => (
-            <TableRow key={app.regNumber} className="hover:bg-gray-50">
-              <TableCell>{app.name}</TableCell>
-              <TableCell>{app.regNumber}</TableCell>
-              <TableCell>{app.gender}</TableCell>
-              <TableCell>{app.part}</TableCell>
-              <TableCell>
-              <Button
-      onClick={() => handleOpenModal(app)}
-      variant="outline"
-      className={`mr-2 ${
-        app.paymentStatus === "Fully Paid"
-          ? "bg-green-500 text-white hover:bg-green-600"
-          : "bg-red-500 text-white hover:bg-red-600"
-      }`}
-      
-    >
-      {app.paymentStatus === "Fully Paid" ? (
-        <span className="flex items-center">
-          <Check className="mr-2 h-4 w-4" /> {/* Checkmark icon for fully paid */}
-          Fully Paid
-        </span>
-      ) : (
-        <span className="flex items-center">
-          <DollarSign className="mr-2 h-4 w-4" /> {/* Dollar sign icon for payment status */}
-          {app.paymentStatus}
-        </span>
-      )}
-    </Button>
-              </TableCell>
-            </TableRow>
-          ))}
+          {acceptedApplications.map((app) => {
+            const hostelInfo = hostelDetails[app.regNumber] || { hostelName: 'Not Allocated', roomNumber: '-', floor: '-' };
+            return (
+              <TableRow key={app.regNumber} className="hover:bg-gray-50">
+                <TableCell>{app.name}</TableCell>
+                <TableCell>{app.regNumber}</TableCell>
+                <TableCell>{app.gender}</TableCell>
+                <TableCell>{app.part}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Home className="h-4 w-4 text-blue-600" />
+                    <span className={hostelInfo.hostelName === 'Not Allocated' ? 'text-red-500' : 'text-gray-900'}>
+                      {hostelInfo.hostelName}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span className={hostelInfo.roomNumber === '-' ? 'text-red-500' : 'text-gray-900'}>
+                    {hostelInfo.roomNumber}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-green-600" />
+                    <span className={hostelInfo.floor === '-' ? 'text-red-500' : 'text-gray-900'}>
+                      {hostelInfo.floor}
+                    </span>
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
-
-      {/* Payment Status Modal */}
-      <PaymentStatusModal
-  isOpen={isModalOpen}
-  onClose={handleCloseModal}
-  student={selectedStudent}
-  onUpdate={handlePaymentStatusUpdate} // Pass the update function
-/>
 
     </div>
   );

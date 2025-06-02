@@ -14,6 +14,9 @@ import {
   SquareArrowOutUpRightIcon,
   UserRound,
   Users,
+  Building,
+  Home,
+  DollarSign,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,26 +64,28 @@ export function AppSidebar() {
   const navigationItems = React.useMemo(() => {
     if (!userRole) return [];
 
-    const items = [];
-
-    if (userRole === "user") {
+    const items = [];    if (userRole === "user") {
       items.push(
         { title: "Profile", icon: UserRound, href: "/student/profile" },
-        { title: "Application", icon: SquareArrowOutUpRightIcon, href: "/student/application" }
+        { title: "Application", icon: SquareArrowOutUpRightIcon, href: "/student/application" },
+        { title: "Room Selection", icon: Home, href: "/student/room-selection" },
+        { title: "Payments", icon: DollarSign, href: "/student/payments" }
       );
     } else if (userRole === "admin") {
       items.push(
         { title: "Accounts", icon: Users, href: "/admin/accounts" },
         { title: "Applications", icon: Inbox, href: "/admin/applications" },
         { title: "Accepted", icon: CircleCheck, href: "/admin/accepted" },
-        { title: "Archived", icon: Archive, href: "/admin/archived" },
+        { title: "Hostels", icon: Building, href: "/admin/hostels" },
+        { title: "Payments", icon: DollarSign, href: "/admin/payments" },
+        // { title: "Archived", icon: Archive, href: "/admin/archived" },
         { title: "Activity logs", icon: Activity, href: "/admin/logs" },
         {title: "Settings", icon: Settings, href: "/admin/settings"}
       );
     }
 
     // Common items
-    items.push({ title: "Published", icon: CloudUpload, href: "/accepted-students" });
+    // items.push({ title: "Published", icon: CloudUpload, href: "/accepted-students" });
 
     return items;
   }, [userRole]);
@@ -88,23 +93,22 @@ export function AppSidebar() {
   if (loading || !userRole) {
     return null;
   }
-
   return (
-    <Sidebar className="w-[150px]">
-      <SidebarHeader className="py-6 px-4">
+    <Sidebar className=" w-[150px] h-9/10 bg-gradient-to-br from-blue-100 to-blue-300 rounded-2xl shadow-xl border border-blue-200/50 m-4 overflow-auto backdrop-blur-sm">
+      <SidebarHeader className="py-6 px-4 border-b border-blue-200/30">
         <div className="flex items-center justify-center">
           <Image src={Logo} alt="logo" width={200} height={200} />
         </div>
       </SidebarHeader>
       <SidebarContent className="py-2">
-        <SidebarMenu className="space-y-4">
+        <SidebarMenu className="space-y-1">
           {navigationItems.map((item) => (
             <SidebarMenuItem key={item.href}>
               <SidebarMenuButton asChild isActive={pathname === item.href}>
                 <Link href={item.href} className="w-full h-fit">
-                  <div className="flex flex-col items-center w-full space-y-1">
+                  <div className="flex items-center w-full ">
                     <item.icon className="h-6 w-6 text-blue-900" />
-                    <p className="text-xs">{item.title}</p>
+                    <p className="pl-1 text-xs">{item.title}</p>
                   </div>
                 </Link>
               </SidebarMenuButton>
