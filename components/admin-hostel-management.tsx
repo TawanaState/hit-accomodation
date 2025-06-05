@@ -28,7 +28,9 @@ import {
   CheckCircle,
   XCircle,
   Eye,
-  Database
+  Database,
+  RotateCcw,
+  ArrowRight
 } from 'lucide-react';
 import { Hostel, Room, RoomAllocation, HostelSettings } from '@/types/hostel';
 import {
@@ -45,9 +47,12 @@ import {
   addFloorToHostel,
   removeRoom,
   removeFloor,
-  removeOccupantFromRoom
+  removeOccupantFromRoom,
+  changeRoomAllocation,
+  getAvailableRoomsForChange,
+  fetchStudentAllocations,
+  fetchStudentProfile
 } from '@/data/hostel-data';
-import { forceInitializeHostelData } from '@/utils/initialize-hostels';
 import { getAuth } from 'firebase/auth';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 
@@ -73,12 +78,12 @@ const AdminHostelManagement: React.FC = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [isAddRoomsDialogOpen, setIsAddRoomsDialogOpen] = useState(false);
-  const [isAddFloorDialogOpen, setIsAddFloorDialogOpen] = useState(false);
-  const [settings, setSettings] = useState<HostelSettings>({
+  const [isAddFloorDialogOpen, setIsAddFloorDialogOpen] = useState(false);  const [settings, setSettings] = useState<HostelSettings>({
     paymentGracePeriod: 7,
     autoRevokeUnpaidAllocations: true,
     maxRoomCapacity: 4,
-    allowMixedGender: false
+    allowMixedGender: false,
+    allowRoomChanges: true
   });
   const [newHostel, setNewHostel] = useState({
     name: '',
@@ -108,6 +113,21 @@ const AdminHostelManagement: React.FC = () => {
   // Initialization state
   const [isInitializing, setIsInitializing] = useState(false);
 
+  // Room transfer functionality state
+  const [showTransferDialog, setShowTransferDialog] = useState(false);
+  const [transferStudent, setTransferStudent] = useState<{ 
+    regNumber: string; 
+    currentRoom: string; 
+    currentHostel: string; 
+    currentRoomNumber: string;
+    currentHostelName: string;
+    currentRoomPrice: number;
+    gender: 'Male' | 'Female' 
+  } | null>(null);
+  const [availableRoomsForTransfer, setAvailableRoomsForTransfer] = useState<(Room & { hostelName: string; floorName: string; price: number })[]>([]);
+  const [selectedTransferRoom, setSelectedTransferRoom] = useState<Room & { hostelName: string; floorName: string; price: number } | null>(null);
+  const [isTransferring, setIsTransferring] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -136,25 +156,7 @@ const AdminHostelManagement: React.FC = () => {
     }
   };
 
-  const handleManualInitialization = async () => {
-    setIsInitializing(true);
-    try {
-      const result = await forceInitializeHostelData();
-      if (result) {
-        toast.success('Hostel data initialized successfully!');
-        await loadData(); // Reload the data to show the new hostels
-      } else {
-        toast.error('Failed to initialize hostel data');
-      }
-    } catch (error) {
-      console.error('Initialization error:', error);
-      toast.error('Failed to initialize hostel data');
-    } finally {
-      setIsInitializing(false);
-    }
-  };
-
-  const handleCreateHostel = async () => {
+   const handleCreateHostel = async () => {
     try {
       const hostelData: Omit<Hostel, 'id'> = {
         ...newHostel,
@@ -656,12 +658,195 @@ const AdminHostelManagement: React.FC = () => {
     if (room.occupants.length === 0) return 'bg-green-100 border-green-200';
     return 'bg-blue-100 border-blue-200';
   };
-
   const getRoomStatusIcon = (room: Room) => {
     if (!room.isAvailable) return <XCircle className="w-4 h-4 text-red-500" />;
     if (room.isReserved) return <Clock className="w-4 h-4 text-yellow-500" />;
     if (room.occupants.length === 0) return <CheckCircle className="w-4 h-4 text-green-500" />;
-    return <Users className="w-4 h-4 text-blue-500" />;
+    return <Users className="w-4 h-4 text-blue-500" />;  };
+  
+  // Room transfer functionality
+  const handleTransferRoom = async (regNumber: string, currentRoom: string, currentHostel: string) => {
+    try {
+      // Get student allocation to determine gender
+      const allocations = await fetchStudentAllocations(regNumber);
+      if (allocations.length === 0) {
+        toast.error('Student allocation not found');
+        return;
+      }
+
+      // Fetch actual gender from student profile data
+      const studentProfile = await fetchStudentProfile(regNumber);
+      if (!studentProfile) {
+        toast.error('Student profile not found');
+        return;
+      }
+      
+      const studentGender = studentProfile.gender;
+      
+      // Get current room details including price
+      const currentHostelData = hostels.find(h => h.id === currentHostel);
+      if (!currentHostelData) {
+        toast.error('Current hostel not found');
+        return;
+      }
+      
+      let currentRoomData = null;
+      let currentRoomNumber = '';
+      let currentFloorName = '';
+      
+      for (const floor of currentHostelData.floors) {
+        const room = floor.rooms.find(r => r.id === currentRoom);
+        if (room) {
+          currentRoomData = room;
+          currentRoomNumber = room.number;
+          currentFloorName = floor.name;
+          break;
+        }
+      }
+      
+      if (!currentRoomData) {
+        toast.error('Current room details not found');
+        return;
+      }
+      
+      const availableRooms = await getAvailableRoomsForChange(regNumber, studentGender, true);
+      setAvailableRoomsForTransfer(availableRooms);
+      setTransferStudent({ 
+        regNumber, 
+        currentRoom, 
+        currentHostel, 
+        currentRoomNumber,
+        currentHostelName: currentHostelData.name,
+        currentRoomPrice: currentHostelData.pricePerSemester,
+        gender: studentGender 
+      });
+      setShowTransferDialog(true);
+    } catch (error) {
+      console.error('Error in handleTransferRoom:', error);
+      toast.error('Failed to load available rooms for transfer');
+    }
+  };
+  
+  const confirmRoomTransfer = async () => {
+    if (!transferStudent || !selectedTransferRoom) return;
+    
+    try {
+      setIsTransferring(true);
+      
+      // Find the hostel ID for the selected room
+      const targetHostel = hostels.find(h => h.name === selectedTransferRoom.hostelName);
+      if (!targetHostel) {
+        toast.error('Target hostel not found');
+        return;
+      }
+
+      await changeRoomAllocation(
+        transferStudent.regNumber,
+        selectedTransferRoom.id,
+        targetHostel.id,
+        transferStudent.gender,
+        true // isAdminAction
+      );
+        // Update local state immediately for better UX
+      const updatedHostels = hostels.map(hostel => {
+        const updatedHostel = { ...hostel };
+        
+        // Handle same-hostel transfer (both remove and add in same hostel)
+        if (hostel.id === transferStudent.currentHostel && hostel.id === targetHostel.id) {
+          updatedHostel.floors = hostel.floors.map(floor => ({
+            ...floor,
+            rooms: floor.rooms.map(room => {
+              // Remove student from current room
+              if (room.id === transferStudent.currentRoom) {
+                return {
+                  ...room,
+                  occupants: room.occupants.filter(reg => reg !== transferStudent.regNumber),
+                  isAvailable: room.occupants.filter(reg => reg !== transferStudent.regNumber).length < room.capacity
+                };
+              }
+              // Add student to new room
+              if (room.id === selectedTransferRoom.id) {
+                const newOccupants = [...room.occupants, transferStudent.regNumber];
+                return {
+                  ...room,
+                  occupants: newOccupants,
+                  isAvailable: newOccupants.length < room.capacity
+                };
+              }
+              return room;
+            })
+          }));
+          // No change in total occupancy for same-hostel transfers
+        } else {
+          // Handle cross-hostel transfer
+          // Remove student from current room
+          if (hostel.id === transferStudent.currentHostel) {
+            updatedHostel.floors = hostel.floors.map(floor => ({
+              ...floor,
+              rooms: floor.rooms.map(room => {
+                if (room.id === transferStudent.currentRoom) {
+                  return {
+                    ...room,
+                    occupants: room.occupants.filter(reg => reg !== transferStudent.regNumber),
+                    isAvailable: room.occupants.filter(reg => reg !== transferStudent.regNumber).length < room.capacity
+                  };
+                }
+                return room;
+              })
+            }));
+            updatedHostel.currentOccupancy = Math.max(0, hostel.currentOccupancy - 1);
+          }
+          
+          // Add student to new room
+          if (hostel.id === targetHostel.id) {
+            updatedHostel.floors = hostel.floors.map(floor => ({
+              ...floor,
+              rooms: floor.rooms.map(room => {
+                if (room.id === selectedTransferRoom.id) {
+                  const newOccupants = [...room.occupants, transferStudent.regNumber];
+                  return {
+                    ...room,
+                    occupants: newOccupants,
+                    isAvailable: newOccupants.length < room.capacity
+                  };
+                }
+                return room;
+              })
+            }));
+            updatedHostel.currentOccupancy = hostel.currentOccupancy + 1;
+          }
+        }
+        
+        return updatedHostel;
+      });
+      
+      // Update state
+      setHostels(updatedHostels);
+      
+      // Update selectedHostel if it's one of the affected hostels
+      if (selectedHostel) {
+        const updatedSelectedHostel = updatedHostels.find(h => h.id === selectedHostel.id);
+        if (updatedSelectedHostel) {
+          setSelectedHostel(updatedSelectedHostel);
+        }
+      }
+      
+      toast.success(`Student ${transferStudent.regNumber} transferred successfully to room ${selectedTransferRoom.number}!`);
+      
+      // Close dialog and reset state
+      setShowTransferDialog(false);
+      setSelectedTransferRoom(null);
+      setTransferStudent(null);
+      
+      // Still call loadData to ensure consistency with backend
+      loadData();
+      
+    } catch (error) {
+      console.error('Room transfer error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to transfer room');
+    } finally {
+      setIsTransferring(false);
+    }
   };
   if (loading) {
     return (
@@ -669,7 +854,9 @@ const AdminHostelManagement: React.FC = () => {
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
       </div>
     );
-  }  return (
+  }
+
+  return (
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="border-b border-gray-200 bg-white">
@@ -732,8 +919,7 @@ const AdminHostelManagement: React.FC = () => {
                     })}
                   />
                   <Label htmlFor="autoRevoke">Auto-revoke unpaid allocations</Label>
-                </div>
-                <div className="flex items-center space-x-2">
+                </div>                <div className="flex items-center space-x-2">
                   <input
                     type="checkbox"
                     id="mixedGender"
@@ -744,6 +930,18 @@ const AdminHostelManagement: React.FC = () => {
                     })}
                   />
                   <Label htmlFor="mixedGender">Allow mixed gender rooms</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="allowRoomChanges"
+                    checked={settings.allowRoomChanges}
+                    onChange={(e) => setSettings({
+                      ...settings,
+                      allowRoomChanges: e.target.checked
+                    })}
+                  />
+                  <Label htmlFor="allowRoomChanges">Allow students to change rooms</Label>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <Button onClick={handleUpdateSettings} className="flex-1">
@@ -760,15 +958,6 @@ const AdminHostelManagement: React.FC = () => {
                 </div>              </div>
             </DialogContent>
           </Dialog>
-
-          <Button 
-            variant="outline" 
-            onClick={handleManualInitialization}
-            disabled={isInitializing}
-          >
-            <Database className="w-4 h-4 mr-2" />
-            {isInitializing ? 'Initializing...' : 'Initialize Data'}
-          </Button>
 
           <Dialog open={isAddRoomsDialogOpen} onOpenChange={setIsAddRoomsDialogOpen}>
             <DialogTrigger asChild>
@@ -1334,22 +1523,32 @@ const AdminHostelManagement: React.FC = () => {
                                           <span className="text-xs font-medium text-gray-900 truncate">{regNumber}</span>
                                           {isRemoving && (
                                             <span className="text-xs text-yellow-600 italic hidden sm:inline">Removing...</span>
-                                          )}
-                                        </div>                                        {!bulkActionMode && (
-                                          <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={() => handleRemoveOccupant(selectedHostel, room.id, regNumber)}
-                                            className="h-5 w-5 sm:h-6 sm:w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
-                                            title={`Remove ${regNumber} from room`}
-                                            disabled={isRemoving}
-                                          >
-                                            {isRemoving ? (
-                                              <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-red-300 border-t-red-500 rounded-full animate-spin"></div>
-                                            ) : (
-                                              <XCircle className="w-3 h-3 sm:w-4 sm:h-4" />
-                                            )}
-                                          </Button>
+                                          )}                                        </div>                                        {!bulkActionMode && (
+                                          <div className="flex items-center gap-1">
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              onClick={() => handleTransferRoom(regNumber, room.id, selectedHostel?.id || '')}
+                                              className="h-5 w-5 sm:h-6 sm:w-6 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50 flex-shrink-0"
+                                              title={`Transfer ${regNumber} to another room`}
+                                            >
+                                              <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4" />
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              onClick={() => handleRemoveOccupant(selectedHostel, room.id, regNumber)}
+                                              className="h-5 w-5 sm:h-6 sm:w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                                              title={`Remove ${regNumber} from room`}
+                                              disabled={isRemoving}
+                                            >
+                                              {isRemoving ? (
+                                                <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-red-300 border-t-red-500 rounded-full animate-spin"></div>
+                                              ) : (
+                                                <XCircle className="w-3 h-3 sm:w-4 sm:h-4" />
+                                              )}
+                                            </Button>
+                                          </div>
                                         )}
                                       </div>
                                     );
@@ -1363,12 +1562,12 @@ const AdminHostelManagement: React.FC = () => {
                     ))}
                   </div>
                 </div>
-              ))}
-            </div>
+              ))}            </div>
           </DialogContent>
         </Dialog>
       )}
-      
+      </div>
+
       {/* Confirmation Dialog */}
       <ConfirmationDialog
         open={confirmDialog.open}
@@ -1381,7 +1580,139 @@ const AdminHostelManagement: React.FC = () => {
         confirmText="Remove"
         cancelText="Cancel"
       />
-      </div>
+
+      {/* Room Transfer Dialog */}
+      <Dialog open={showTransferDialog} onOpenChange={setShowTransferDialog}>
+        <DialogContent className="w-[90vw] max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Transfer Room</DialogTitle>
+            <DialogDescription>
+              Transfer a student to a different room
+            </DialogDescription>
+          </DialogHeader>          <div className="space-y-4">
+            <div>
+              <Label>Student Registration Number</Label>
+              <Input value={transferStudent?.regNumber} readOnly />
+            </div>
+            
+            {/* Current Room Information */}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                <Bed className="w-4 h-4" />
+                Current Room
+              </h4>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-gray-600">Room Number</p>
+                  <p className="font-medium">{transferStudent?.currentRoomNumber}</p>
+                </div>
+                <div>
+                  <p className="text-gray-600">Hostel</p>
+                  <p className="font-medium">{transferStudent?.currentHostelName}</p>
+                </div>
+                <div>
+                  <p className="text-gray-600">Price</p>
+                  <p className="font-medium text-blue-600">${transferStudent?.currentRoomPrice}/semester</p>
+                </div>
+              </div>
+            </div>
+            
+            <div>
+              <Label>Available Rooms</Label>
+              <Select onValueChange={(value) => {
+                const room = availableRoomsForTransfer.find(r => r.id === value);
+                setSelectedTransferRoom(room || null);
+              }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a room" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableRoomsForTransfer.map((room) => (
+                    <SelectItem key={room.id} value={room.id}>
+                      {room.number} - {room.hostelName} ({room.floorName}) - ${room.price}/semester
+                      {room.price !== transferStudent?.currentRoomPrice && (
+                        <Badge 
+                          variant="outline" 
+                          className={`ml-2 text-xs ${
+                            room.price > (transferStudent?.currentRoomPrice || 0) 
+                              ? 'text-red-600 border-red-200' 
+                              : 'text-green-600 border-green-200'
+                          }`}
+                        >
+                          {room.price > (transferStudent?.currentRoomPrice || 0) ? 'Higher' : 'Lower'} Price
+                        </Badge>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {selectedTransferRoom && (
+              <div className="space-y-3">
+                <div className="p-4 rounded-md border bg-green-50 border-green-200 text-green-800 text-sm">
+                  <p className="font-semibold">Selected Room:</p>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div>
+                      <p className="text-green-600">Room</p>
+                      <p className="font-medium">{selectedTransferRoom.number}</p>
+                    </div>
+                    <div>
+                      <p className="text-green-600">Hostel</p>
+                      <p className="font-medium">{selectedTransferRoom.hostelName}</p>
+                    </div>
+                    <div>
+                      <p className="text-green-600">Floor</p>
+                      <p className="font-medium">{selectedTransferRoom.floorName}</p>
+                    </div>
+                    <div>
+                      <p className="text-green-600">Price</p>
+                      <p className="font-medium">${selectedTransferRoom.price}/semester</p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Price Difference Warning */}
+                {selectedTransferRoom.price !== transferStudent?.currentRoomPrice && (
+                  <div className={`p-4 rounded-md border text-sm ${
+                    selectedTransferRoom.price > (transferStudent?.currentRoomPrice || 0)
+                      ? 'bg-red-50 border-red-200 text-red-800'
+                      : 'bg-yellow-50 border-yellow-200 text-yellow-800'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      <p className="font-semibold">Price Difference Alert</p>
+                    </div>
+                    <p className="mt-1">
+                      {selectedTransferRoom.price > (transferStudent?.currentRoomPrice || 0) ? (
+                        <>
+                          The new room costs <strong>${selectedTransferRoom.price - (transferStudent?.currentRoomPrice || 0)} more</strong> per semester than the current room.
+                          The student may need to make an additional payment.
+                        </>
+                      ) : (
+                        <>
+                          The new room costs <strong>${(transferStudent?.currentRoomPrice || 0) - selectedTransferRoom.price} less</strong> per semester than the current room.
+                          A payment adjustment may be needed.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}<div className="flex gap-2">
+              <Button 
+                onClick={confirmRoomTransfer} 
+                className="flex-1" 
+                disabled={isTransferring || !selectedTransferRoom}
+              >
+                {isTransferring ? 'Transferring...' : 'Confirm Transfer'}
+              </Button>
+              <Button onClick={() => setShowTransferDialog(false)} variant="outline" className="flex-1">
+                Cancel
+              </Button>
+            </div>
+          </div>        </DialogContent>
+      </Dialog>
     </div>
   );
 };
