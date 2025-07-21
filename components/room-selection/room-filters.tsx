@@ -40,7 +40,7 @@ const RoomFilters: React.FC<RoomFiltersProps> = ({
         <CardTitle>Filter Rooms</CardTitle>
         {showGenderFilter && studentGender && (
           <p className="text-sm text-blue-600 bg-blue-50 p-2 rounded">
-            📍 Showing {studentGender} and Mixed gender rooms only
+            📍 Showing {studentGender} rooms only if no other rooms are available switch to other hostels with available rooms
           </p>
         )}
       </CardHeader>

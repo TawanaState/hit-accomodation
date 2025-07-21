@@ -1105,6 +1105,23 @@ export const changeRoomAllocation = async (
         };
 
         await updateDoc(allocationDoc, updatedAllocationData);
+        
+        // Step 3: Auto-update payment allocation if there's a matching payment (for same price rooms)
+        try {
+          const { autoUpdatePaymentAllocation } = await import('./payment-data');
+          const updateResult = await autoUpdatePaymentAllocation(
+            studentRegNumber, 
+            currentAllocation.id, // Using existing allocation ID for same-hostel moves
+            newHostel.pricePerSemester
+          );
+          
+          if (updateResult.updated) {
+            console.log(`Auto-updated payment for student ${studentRegNumber}: ${updateResult.message}`);
+          }
+        } catch (error) {
+          console.warn(`Failed to auto-update payment for student ${studentRegNumber}:`, error);
+          // Don't throw error here - allocation should still succeed even if payment update fails
+        }
 
       } catch (error) {
         console.error("Error during same-hostel room change:", error);
@@ -1166,6 +1183,23 @@ export const changeRoomAllocation = async (
         } catch (paymentError) {
           console.error("Failed to update payment references:", paymentError);
           // Continue execution as this is not critical for room allocation
+        }
+        
+        // Step 5: Auto-update payment allocation if there's a matching payment (for same price rooms)
+        try {
+          const { autoUpdatePaymentAllocation } = await import('./payment-data');
+          const updateResult = await autoUpdatePaymentAllocation(
+            studentRegNumber, 
+            docRef.id, 
+            newHostel.pricePerSemester
+          );
+          
+          if (updateResult.updated) {
+            console.log(`Auto-updated payment for student ${studentRegNumber}: ${updateResult.message}`);
+          }
+        } catch (error) {
+          console.warn(`Failed to auto-update payment for student ${studentRegNumber}:`, error);
+          // Don't throw error here - allocation should still succeed even if payment update fails
         }
 
       } catch (error) {
@@ -1460,7 +1494,26 @@ export const adminAllocateStudentToRoom = async (
     }
 
     // Allocate room using existing logic
-    return await allocateRoom(studentRegNumber, roomId, hostelId);
+    const newAllocation = await allocateRoom(studentRegNumber, roomId, hostelId);
+    
+    // Auto-update payment allocation if there's a matching payment
+    try {
+      const { autoUpdatePaymentAllocation } = await import('./payment-data');
+      const updateResult = await autoUpdatePaymentAllocation(
+        studentRegNumber, 
+        newAllocation.id, 
+        hostel.pricePerSemester
+      );
+      
+      if (updateResult.updated) {
+        console.log(`Auto-updated payment for student ${studentRegNumber}: ${updateResult.message}`);
+      }
+    } catch (error) {
+      console.warn(`Failed to auto-update payment for student ${studentRegNumber}:`, error);
+      // Don't throw error here - allocation should still succeed even if payment update fails
+    }
+    
+    return newAllocation;
   } catch (error) {
     console.error("Error allocating student to room (admin):", error);
     throw error;

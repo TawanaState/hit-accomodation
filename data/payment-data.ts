@@ -474,8 +474,57 @@ export const fixAllAllocationPayments = async (): Promise<{
 };
 
 /**
- * Delete payment (admin function)
+ * Auto-update payment allocation when student is assigned to a new room with same price
  */
+export const autoUpdatePaymentAllocation = async (
+  studentRegNumber: string, 
+  newAllocationId: string, 
+  newRoomPrice: number
+): Promise<{ updated: boolean; message: string }> => {
+  try {
+    // Get student's payments
+    const payments = await fetchStudentPayments(studentRegNumber);
+    
+    // Find approved payment with matching amount
+    const matchingPayment = payments.find(payment => 
+      payment.status === 'Approved' && 
+      payment.amount === newRoomPrice
+    );
+    
+    if (matchingPayment) {
+      // Update the payment to reference the new allocation
+      const paymentDoc = doc(db, "payments", matchingPayment.id);
+      await updateDoc(paymentDoc, {
+        allocationId: newAllocationId
+      });
+      
+      // Update the new allocation with payment reference
+      const allocationDoc = doc(db, "roomAllocations", newAllocationId);
+      await updateDoc(allocationDoc, {
+        paymentId: matchingPayment.id,
+        paymentStatus: 'Paid'
+      });
+      
+      console.log(`Auto-updated payment ${matchingPayment.id} for student ${studentRegNumber} to new allocation ${newAllocationId}`);
+      
+      return {
+        updated: true,
+        message: `Payment automatically linked to new room allocation`
+      };
+    }
+    
+    return {
+      updated: false,
+      message: 'No matching payment found to auto-update'
+    };
+  } catch (error) {
+    console.error("Error auto-updating payment allocation:", error);
+    return {
+      updated: false,
+      message: 'Failed to auto-update payment allocation'
+    };
+  }
+};
 export const deletePayment = async (paymentId: string): Promise<void> => {
   try {
     const paymentDoc = doc(db, "payments", paymentId);
