@@ -267,10 +267,34 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
     );
   };
 
-  const unPaidAllocations = allocations.filter(allocation => 
-    allocation.paymentStatus !== 'Paid' && 
-    !payments.find(p => p.allocationId === allocation.id && p.status === 'Pending')
-  );
+  // Determine unpaid allocations: skip those with existing pending or approved payments for this allocation,
+  // or any approved payment matching the current room price even if allocationId differs
+  const unPaidAllocations = allocations.filter(allocation => {
+    if (allocation.paymentStatus === 'Paid') return false;
+    
+    // Check for pending payment for this specific allocation
+    const hasPendingPayment = payments.find(p => 
+      p.allocationId === allocation.id && p.status === 'Pending'
+    );
+    if (hasPendingPayment) return false;
+    
+    // Check for approved payment for this specific allocation
+    const hasApprovedPayment = payments.find(p => 
+      p.allocationId === allocation.id && p.status === 'Approved'
+    );
+    if (hasApprovedPayment) return false;
+    
+    // Check for any approved payment matching the current room price (for room changes)
+    const currentRoomPrice = allocationDetails[allocation.id]?.price;
+    if (currentRoomPrice) {
+      const hasMatchingApprovedPayment = payments.find(p => 
+        p.status === 'Approved' && p.amount === currentRoomPrice
+      );
+      if (hasMatchingApprovedPayment) return false;
+    }
+    
+    return true;
+  });
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
