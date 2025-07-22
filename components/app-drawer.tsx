@@ -88,6 +88,7 @@ export function AppDrawer({ children }: { children: React.ReactNode }) {
         { title: "Hostels", icon: Building, href: "/admin/hostels" },
         { title: "Payments", icon: DollarSign, href: "/admin/payments" },
         // { title: "Archived", icon: Archive, href: "/admin/archived" },
+        { title: "Reports", icon: Archive, href: "/admin/reports" },
         { title: "Activity logs", icon: Activity, href: "/admin/logs" },
         {title: "Settings", icon: Settings, href: "/admin/settings"}
       );
