@@ -29,7 +29,9 @@ import {
   approvePayment, 
   rejectPayment,
   addAdminPayment,
-  deletePayment
+  deletePayment,
+  fixStudentAllocationPayments,
+  fixAllAllocationPayments
 } from '@/data/payment-data';
 import { fetchStudentAllocations, getRoomDetailsFromAllocation, fetchAllocationById, fetchHostels } from '@/data/hostel-data';
 import { Payment, RoomAllocation, Hostel } from '@/types/hostel';
@@ -49,6 +51,7 @@ const AdminPaymentManagement: React.FC = () => {
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [addPaymentDialogOpen, setAddPaymentDialogOpen] = useState(false);
+  const [fixPaymentsDialogOpen, setFixPaymentsDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
     // Form states
   const [rejectionReason, setRejectionReason] = useState('');
@@ -59,7 +62,13 @@ const AdminPaymentManagement: React.FC = () => {
     amount: '',
     paymentMethod: 'Bank Transfer' as Payment['paymentMethod'],
     notes: ''
-  });  const [isLoadingAmount, setIsLoadingAmount] = useState(false);
+  });  
+  const [fixPaymentsForm, setFixPaymentsForm] = useState({
+    studentRegNumber: '',
+    isFixing: false,
+    fixAll: false
+  });
+  const [isLoadingAmount, setIsLoadingAmount] = useState(false);
   const [allowAmountEdit, setAllowAmountEdit] = useState(false);
   const [roomInfo, setRoomInfo] = useState<{hostelName: string, roomNumber: string, floorName: string} | null>(null);
   const [allocationDetails, setAllocationDetails] = useState<Map<string, { roomNumber: string; hostelName: string; price: number }>>(new Map());
@@ -220,6 +229,56 @@ const AdminPaymentManagement: React.FC = () => {
       loadData();
     } catch (error) {
       toast.error('Failed to add payment');
+    }
+  };
+
+  const handleFixPayments = async () => {
+    if (!fixPaymentsForm.fixAll && !fixPaymentsForm.studentRegNumber.trim()) {
+      toast.error('Please enter a student registration number or select "Fix All Students"');
+      return;
+    }
+
+    try {
+      setFixPaymentsForm(prev => ({ ...prev, isFixing: true }));
+      
+      if (fixPaymentsForm.fixAll) {
+        // Fix all affected students
+        toast.info('Starting bulk fix operation for all affected students...');
+        const result = await fixAllAllocationPayments();
+        
+        if (result.totalFixed > 0) {
+          toast.success(`Successfully fixed ${result.totalFixed} allocation payment(s) across ${result.studentsProcessed} students!`);
+          
+          // Show detailed results
+          const studentsFixed = result.details.filter(d => d.fixed > 0);
+          if (studentsFixed.length > 0) {
+            const detailMessage = studentsFixed
+              .map(d => `${d.studentRegNumber}: ${d.fixed} fixed`)
+              .join(', ');
+            toast.info(`Fixed students: ${detailMessage}`, { autoClose: 8000 });
+          }
+        } else {
+          toast.info(`Processed ${result.studentsProcessed} students but found no payments to fix.`);
+        }
+      } else {
+        // Fix single student
+        const result = await fixStudentAllocationPayments(fixPaymentsForm.studentRegNumber);
+        
+        if (result.fixed > 0) {
+          toast.success(result.message);
+        } else {
+          toast.info(result.message);
+        }
+      }
+      
+      loadData(); // Reload data to show updated payments
+      setFixPaymentsDialogOpen(false);
+      setFixPaymentsForm({ studentRegNumber: '', isFixing: false, fixAll: false });
+    } catch (error) {
+      toast.error('Failed to fix allocation payments');
+      console.error('Error fixing payments:', error);
+    } finally {
+      setFixPaymentsForm(prev => ({ ...prev, isFixing: false }));
     }
   };
   
@@ -420,6 +479,14 @@ const AdminPaymentManagement: React.FC = () => {
                 <Button className="flex-1 sm:w-auto">
                     <Plus className="w-4 h-4 mr-2" />
                     Add Payment
+                </Button>
+                </DialogTrigger>
+            </Dialog>
+            <Dialog open={fixPaymentsDialogOpen} onOpenChange={setFixPaymentsDialogOpen}>
+                <DialogTrigger asChild>
+                <Button variant="outline" className="flex-1 sm:w-auto">
+                    <AlertTriangle className="w-4 h-4 mr-2" />
+                    Fix Payments
                 </Button>
                 </DialogTrigger>
             </Dialog>
@@ -840,6 +907,83 @@ const AdminPaymentManagement: React.FC = () => {
                 Add Payment
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Fix Payments Dialog */}
+      <Dialog open={fixPaymentsDialogOpen} onOpenChange={setFixPaymentsDialogOpen}>
+        <DialogContent className="max-w-md w-[90vw] max-h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle>Fix Student Payment Allocations</DialogTitle>
+            <DialogDescription>
+              Fix payment allocation references for students who changed rooms after payment. 
+              This will link approved payments to current allocations based on matching amounts.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 flex-1 overflow-y-auto pr-2">
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="fixAllStudents"
+                  checked={fixPaymentsForm.fixAll}
+                  onChange={(e) => setFixPaymentsForm({
+                    ...fixPaymentsForm, 
+                    fixAll: e.target.checked,
+                    studentRegNumber: e.target.checked ? '' : fixPaymentsForm.studentRegNumber
+                  })}
+                  disabled={fixPaymentsForm.isFixing}
+                  className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <Label htmlFor="fixAllStudents" className="text-sm font-medium">
+                  Fix all affected students (recommended)
+                </Label>
+              </div>
+              
+              {fixPaymentsForm.fixAll && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-800">
+                    <strong>Bulk Operation:</strong> This will automatically find and fix all students 
+                    who have approved payments but unpaid room allocations by matching payment amounts 
+                    to current room prices.
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            {!fixPaymentsForm.fixAll && (
+              <div>
+                <Label htmlFor="fixStudentRegNumber">Student Registration Number</Label>
+                <Input
+                  id="fixStudentRegNumber"
+                  value={fixPaymentsForm.studentRegNumber}
+                  onChange={(e) => setFixPaymentsForm({...fixPaymentsForm, studentRegNumber: e.target.value})}
+                  placeholder="Enter specific student registration number"
+                  disabled={fixPaymentsForm.isFixing}
+                />
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-4 border-t flex-shrink-0">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setFixPaymentsDialogOpen(false);
+                setFixPaymentsForm({ studentRegNumber: '', isFixing: false, fixAll: false });
+              }}
+              disabled={fixPaymentsForm.isFixing}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleFixPayments}
+              disabled={fixPaymentsForm.isFixing || (!fixPaymentsForm.fixAll && !fixPaymentsForm.studentRegNumber.trim())}
+              className={fixPaymentsForm.fixAll ? "bg-blue-600 hover:bg-blue-700" : ""}
+            >
+              {fixPaymentsForm.isFixing ? 'Fixing...' : 
+               fixPaymentsForm.fixAll ? 'Fix All Students' : 'Fix Single Student'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

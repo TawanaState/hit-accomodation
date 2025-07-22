@@ -64,56 +64,48 @@ export const createHostel = async (hostel: Omit<Hostel, 'id'>): Promise<string> 
       throw new Error('Hostel name is required and must be a non-empty string');
     }
 
-    const normalizedName = hostel.name.toLowerCase().trim();
-    console.log(`[HOSTEL CREATION] Attempting to create hostel: "${hostel.name}"`);
+    const trimmedName = hostel.name.trim();
+    const normalizedName = trimmedName.toLowerCase();
+    console.log(`[HOSTEL CREATION] Attempting to create hostel: "${trimmedName}"`);
     
-    // First check if a hostel with this name already exists
+    // Check if a hostel with the same name (case-insensitive) already exists
     const hostelsCollection = collection(db, "hostels");
-    const q = query(hostelsCollection, where("name", "==", hostel.name.trim()));
-    const querySnapshot = await getDocs(q);
-
-    if (!querySnapshot.empty) {
-      // A hostel with this exact name already exists - throw error to prevent duplicates
-      const existingHostelId = querySnapshot.docs[0].id;
-      
-      console.log(`[HOSTEL CREATION] Hostel "${hostel.name}" already exists with ID: ${existingHostelId}. Throwing error to prevent duplicate.`);
-      
-      logHostelOperation('CREATE', {
-        hostelName: hostel.name,
-        existingHostelId: existingHostelId,
-        action: 'duplicate_rejected',
-        message: 'Threw error to prevent duplicate hostel creation'
-      });
-      
-      // Throw error instead of returning existing ID - strict no-duplicate policy
-      throw new Error(`A hostel with the name "${hostel.name}" already exists. Please use a different name.`);
-    }
-
-    // Additional validation: check for similar names (prevent typos from creating duplicates)
     const allHostelsSnapshot = await getDocs(hostelsCollection);
     
-    const similarHostel = allHostelsSnapshot.docs.find(doc => {
-      const existingName = doc.data().name.toLowerCase().trim();
-      return existingName !== normalizedName && 
-             (existingName.includes(normalizedName) || normalizedName.includes(existingName));
-    });
+    const existingHostel = allHostelsSnapshot.docs.find(doc => 
+      doc.data().name.trim().toLowerCase() === normalizedName
+    );
 
-    if (similarHostel) {
-      const similarHostelData = similarHostel.data();
-      console.warn(`[HOSTEL CREATION] WARNING: Similar hostel name found: "${similarHostelData.name}" (ID: ${similarHostel.id}). Proceeding with creation of "${hostel.name}".`);
+    if (existingHostel) {
+      // A hostel with this name (case-insensitive) already exists - throw error
+      const existingHostelId = existingHostel.id;
+      const existingHostelName = existingHostel.data().name;
+      
+      console.log(`[HOSTEL CREATION] Hostel with similar name "${existingHostelName}" already exists with ID: ${existingHostelId}. Throwing error to prevent duplicate.`);
+      
+      logHostelOperation('CREATE', {
+        hostelName: trimmedName,
+        existingHostelId: existingHostelId,
+        action: 'duplicate_rejected_case_insensitive',
+        message: 'Threw error to prevent duplicate hostel creation (case-insensitive check)'
+      });
+      
+      throw new Error(`A hostel with the name "${trimmedName}" already exists. Please use a different name.`);
     }
 
     // Use transaction to create the hostel atomically
     const newHostelId = await runTransaction(db, async (transaction) => {
       // Double-check within transaction to prevent race conditions
-      const recheckQuery = query(hostelsCollection, where("name", "==", hostel.name.trim()));
-      const recheckSnapshot = await getDocs(recheckQuery);
+      const recheckSnapshot = await getDocs(collection(db, "hostels"));
+      const recheckExisting = recheckSnapshot.docs.find(doc => 
+        doc.data().name.trim().toLowerCase() === normalizedName
+      );
       
-      if (!recheckSnapshot.empty) {
+      if (recheckExisting) {
         // Another process created this hostel between our initial check and transaction
-        const existingHostelId = recheckSnapshot.docs[0].id;
-        console.log(`[HOSTEL CREATION] Race condition detected - hostel "${hostel.name}" was created by another process. Throwing error: ${existingHostelId}`);
-        throw new Error(`A hostel with the name "${hostel.name}" already exists. Please use a different name.`);
+        const existingHostelId = recheckExisting.id;
+        console.log(`[HOSTEL CREATION] Race condition detected - hostel "${trimmedName}" was created by another process. Throwing error: ${existingHostelId}`);
+        throw new Error(`A hostel with the name "${trimmedName}" already exists. Please use a different name.`);
       }
 
       // Create a new hostel document with auto-generated ID
@@ -121,7 +113,7 @@ export const createHostel = async (hostel: Omit<Hostel, 'id'>): Promise<string> 
       
       transaction.set(newHostelRef, {
         ...hostel,
-        name: hostel.name.trim() // Ensure the name is trimmed when stored
+        name: trimmedName // Ensure the name is trimmed when stored
       });
       
       logHostelOperation('CREATE', {
@@ -1113,6 +1105,23 @@ export const changeRoomAllocation = async (
         };
 
         await updateDoc(allocationDoc, updatedAllocationData);
+        
+        // Step 3: Auto-update payment allocation if there's a matching payment (for same price rooms)
+        try {
+          const { autoUpdatePaymentAllocation } = await import('./payment-data');
+          const updateResult = await autoUpdatePaymentAllocation(
+            studentRegNumber, 
+            currentAllocation.id, // Using existing allocation ID for same-hostel moves
+            newHostel.pricePerSemester
+          );
+          
+          if (updateResult.updated) {
+            console.log(`Auto-updated payment for student ${studentRegNumber}: ${updateResult.message}`);
+          }
+        } catch (error) {
+          console.warn(`Failed to auto-update payment for student ${studentRegNumber}:`, error);
+          // Don't throw error here - allocation should still succeed even if payment update fails
+        }
 
       } catch (error) {
         console.error("Error during same-hostel room change:", error);
@@ -1174,6 +1183,23 @@ export const changeRoomAllocation = async (
         } catch (paymentError) {
           console.error("Failed to update payment references:", paymentError);
           // Continue execution as this is not critical for room allocation
+        }
+        
+        // Step 5: Auto-update payment allocation if there's a matching payment (for same price rooms)
+        try {
+          const { autoUpdatePaymentAllocation } = await import('./payment-data');
+          const updateResult = await autoUpdatePaymentAllocation(
+            studentRegNumber, 
+            docRef.id, 
+            newHostel.pricePerSemester
+          );
+          
+          if (updateResult.updated) {
+            console.log(`Auto-updated payment for student ${studentRegNumber}: ${updateResult.message}`);
+          }
+        } catch (error) {
+          console.warn(`Failed to auto-update payment for student ${studentRegNumber}:`, error);
+          // Don't throw error here - allocation should still succeed even if payment update fails
         }
 
       } catch (error) {
@@ -1468,7 +1494,26 @@ export const adminAllocateStudentToRoom = async (
     }
 
     // Allocate room using existing logic
-    return await allocateRoom(studentRegNumber, roomId, hostelId);
+    const newAllocation = await allocateRoom(studentRegNumber, roomId, hostelId);
+    
+    // Auto-update payment allocation if there's a matching payment
+    try {
+      const { autoUpdatePaymentAllocation } = await import('./payment-data');
+      const updateResult = await autoUpdatePaymentAllocation(
+        studentRegNumber, 
+        newAllocation.id, 
+        hostel.pricePerSemester
+      );
+      
+      if (updateResult.updated) {
+        console.log(`Auto-updated payment for student ${studentRegNumber}: ${updateResult.message}`);
+      }
+    } catch (error) {
+      console.warn(`Failed to auto-update payment for student ${studentRegNumber}:`, error);
+      // Don't throw error here - allocation should still succeed even if payment update fails
+    }
+    
+    return newAllocation;
   } catch (error) {
     console.error("Error allocating student to room (admin):", error);
     throw error;

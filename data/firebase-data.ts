@@ -116,6 +116,24 @@ export const updateApplicationStatus = async (
 };
 
 /**
+ * Fetch all students from Firebase students collection (not new-students)
+ */
+export const fetchAllStudentsFromStudentsCollection = async (): Promise<any[]> => {
+  try {
+    const studentsCollection = collection(db, "students");
+    const studentsSnap = await getDocs(studentsCollection);
+    const students = studentsSnap.docs.map(doc => ({
+      regNumber: doc.id,
+      ...doc.data()
+    }));
+    return students;
+  } catch (error) {
+    console.error("Error fetching students from students collection:", error);
+    throw new Error("Failed to fetch students from students collection. Please ensure the students collection is populated.");
+  }
+};
+
+/**
  * Fetches published students from the "PublishedStudents" collection
  * @returns A list of published students
  */

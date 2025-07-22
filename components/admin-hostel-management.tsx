@@ -847,6 +847,7 @@ const AdminHostelManagement: React.FC = () => {
       
       toast.success(`Student ${transferStudent.regNumber} transferred successfully to room ${selectedTransferRoom.number}!`);
       
+
       // Close dialog and reset state
       setShowTransferDialog(false);
       setSelectedTransferRoom(null);
@@ -923,6 +924,13 @@ const AdminHostelManagement: React.FC = () => {
       }
 
       toast.success(`Student ${assignStudentForm.regNumber} assigned successfully!`);
+      
+      // Show additional success message about payment auto-update
+      setTimeout(() => {
+        toast.info('💡 Payment allocation automatically updated if applicable', { 
+          autoClose: 4000 
+        });
+      }, 1000);
       
       // Close dialog and reset form
       setShowAssignStudentDialog(false);

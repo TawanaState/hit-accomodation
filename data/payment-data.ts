@@ -14,7 +14,7 @@ import {
   Timestamp
 } from "firebase/firestore";
 import { Payment, RoomAllocation } from "@/types/hostel";
-import { updatePaymentStatus } from "./hostel-data";
+import { updatePaymentStatus, fetchStudentAllocations, getRoomDetailsFromAllocation } from "./hostel-data";
 
 /**
  * Submit a new payment by student
@@ -300,8 +300,231 @@ export const updatePaymentAllocationReference = async (
 };
 
 /**
- * Delete payment (admin function)
+ * Fix allocation payment references for a specific student (admin function)
+ * Links existing approved payments to current allocations based on matching amount/price
  */
+export const fixStudentAllocationPayments = async (studentRegNumber: string): Promise<{
+  fixed: number;
+  message: string;
+}> => {
+  try {
+    // Get student's payments and allocations
+    const [payments, allocations] = await Promise.all([
+      fetchStudentPayments(studentRegNumber),
+      fetchStudentAllocations(studentRegNumber)
+    ]);
+    
+    // Get unpaid allocations
+    const unpaidAllocations = allocations.filter((allocation: RoomAllocation) => allocation.paymentStatus !== 'Paid');
+    
+    // Get approved payments that might not be linked to current allocations
+    const approvedPayments = payments.filter(p => p.status === 'Approved');
+    
+    let fixedCount = 0;
+    const fixedAllocations = [];
+    
+    // For each unpaid allocation, try to find a matching approved payment
+    for (const allocation of unpaidAllocations) {
+      // Get room details to know the price
+      const roomDetails = await getRoomDetailsFromAllocation(allocation);
+      if (!roomDetails) continue;
+      
+      // Look for an approved payment with matching amount
+      const matchingPayment = approvedPayments.find(payment => 
+        payment.amount === roomDetails.price && 
+        payment.allocationId !== allocation.id
+      );
+      
+      if (matchingPayment) {
+        // Update the payment to reference the current allocation
+        const paymentDoc = doc(db, "payments", matchingPayment.id);
+        await updateDoc(paymentDoc, {
+          allocationId: allocation.id
+        });
+        
+        // Update allocation payment status
+        await updatePaymentStatus(allocation.id, 'Paid');
+        
+        // Update allocation with payment reference
+        const allocationDoc = doc(db, "roomAllocations", allocation.id);
+        await updateDoc(allocationDoc, {
+          paymentId: matchingPayment.id
+        });
+        
+        fixedCount++;
+        fixedAllocations.push({
+          studentRegNumber: studentRegNumber,
+          allocationId: allocation.id,
+          paymentId: matchingPayment.id,
+          amount: matchingPayment.amount
+        });
+      }
+    }
+    
+    return {
+      fixed: fixedCount,
+      message: fixedCount > 0 
+        ? `Successfully fixed ${fixedCount} allocation payment(s) for student ${studentRegNumber}`
+        : `No matching payments found to fix for student ${studentRegNumber}`
+    };
+  } catch (error) {
+    console.error("Error fixing allocation payments:", error);
+    throw error;
+  }
+};
+
+/**
+ * Fix allocation payment references for ALL affected students (admin function)
+ * This is a bulk operation that fixes payments for all students who have mismatched allocations
+ */
+export const fixAllAllocationPayments = async (): Promise<{
+  studentsProcessed: number;
+  totalFixed: number;
+  details: Array<{
+    studentRegNumber: string;
+    fixed: number;
+    message: string;
+  }>;
+}> => {
+  try {
+    console.log("Starting bulk fix for all affected students...");
+    
+    // Get all payments and allocations
+    const [allPayments, allAllocations] = await Promise.all([
+      fetchAllPayments(),
+      (async () => {
+        const allocationsCollection = collection(db, "roomAllocations");
+        const allocationsSnap = await getDocs(allocationsCollection);
+        return allocationsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as RoomAllocation[];
+      })()
+    ]);
+    
+    // Find students who have approved payments but unpaid allocations
+    const studentMap = new Map<string, {
+      payments: Payment[];
+      allocations: RoomAllocation[];
+    }>();
+    
+    // Group payments by student
+    allPayments.forEach(payment => {
+      const student = payment.studentRegNumber;
+      if (!studentMap.has(student)) {
+        studentMap.set(student, { payments: [], allocations: [] });
+      }
+      studentMap.get(student)!.payments.push(payment);
+    });
+    
+    // Group allocations by student
+    allAllocations.forEach(allocation => {
+      const student = allocation.studentRegNumber;
+      if (!studentMap.has(student)) {
+        studentMap.set(student, { payments: [], allocations: [] });
+      }
+      studentMap.get(student)!.allocations.push(allocation);
+    });
+    
+    // Find potentially affected students
+    const affectedStudents: string[] = [];
+    
+    studentMap.forEach((data, studentRegNumber) => {
+      const hasApprovedPayments = data.payments.some((p: Payment) => p.status === 'Approved');
+      const hasUnpaidAllocations = data.allocations.some((a: RoomAllocation) => a.paymentStatus !== 'Paid');
+      
+      if (hasApprovedPayments && hasUnpaidAllocations) {
+        affectedStudents.push(studentRegNumber);
+      }
+    });
+    
+    console.log(`Found ${affectedStudents.length} potentially affected students`);
+    
+    // Process each affected student
+    const results = [];
+    let totalFixed = 0;
+    
+    for (const studentRegNumber of affectedStudents) {
+      try {
+        const result = await fixStudentAllocationPayments(studentRegNumber);
+        results.push({
+          studentRegNumber,
+          fixed: result.fixed,
+          message: result.message
+        });
+        totalFixed += result.fixed;
+      } catch (error) {
+        console.error(`Failed to fix payments for student ${studentRegNumber}:`, error);
+        results.push({
+          studentRegNumber,
+          fixed: 0,
+          message: `Error: Failed to fix payments for student ${studentRegNumber}`
+        });
+      }
+    }
+    
+    console.log(`Bulk fix completed. Processed ${affectedStudents.length} students, fixed ${totalFixed} allocations`);
+    
+    return {
+      studentsProcessed: affectedStudents.length,
+      totalFixed,
+      details: results
+    };
+  } catch (error) {
+    console.error("Error in bulk fix operation:", error);
+    throw error;
+  }
+};
+
+/**
+ * Auto-update payment allocation when student is assigned to a new room with same price
+ */
+export const autoUpdatePaymentAllocation = async (
+  studentRegNumber: string, 
+  newAllocationId: string, 
+  newRoomPrice: number
+): Promise<{ updated: boolean; message: string }> => {
+  try {
+    // Get student's payments
+    const payments = await fetchStudentPayments(studentRegNumber);
+    
+    // Find approved payment with matching amount
+    const matchingPayment = payments.find(payment => 
+      payment.status === 'Approved' && 
+      payment.amount === newRoomPrice
+    );
+    
+    if (matchingPayment) {
+      // Update the payment to reference the new allocation
+      const paymentDoc = doc(db, "payments", matchingPayment.id);
+      await updateDoc(paymentDoc, {
+        allocationId: newAllocationId
+      });
+      
+      // Update the new allocation with payment reference
+      const allocationDoc = doc(db, "roomAllocations", newAllocationId);
+      await updateDoc(allocationDoc, {
+        paymentId: matchingPayment.id,
+        paymentStatus: 'Paid'
+      });
+      
+      console.log(`Auto-updated payment ${matchingPayment.id} for student ${studentRegNumber} to new allocation ${newAllocationId}`);
+      
+      return {
+        updated: true,
+        message: `Payment automatically linked to new room allocation`
+      };
+    }
+    
+    return {
+      updated: false,
+      message: 'No matching payment found to auto-update'
+    };
+  } catch (error) {
+    console.error("Error auto-updating payment allocation:", error);
+    return {
+      updated: false,
+      message: 'Failed to auto-update payment allocation'
+    };
+  }
+};
 export const deletePayment = async (paymentId: string): Promise<void> => {
   try {
     const paymentDoc = doc(db, "payments", paymentId);
