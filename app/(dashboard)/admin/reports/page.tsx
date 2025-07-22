@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectItem, SelectTrigger, SelectContent, SelectValue } from "@/components/ui/select";
 import { Table, TableHead, TableRow, TableCell, TableBody } from "@/components/ui/table";
 import * as XLSX from "xlsx";
-import { fetchAllStudentsFromFirebase, StudentData } from "@/data/firebase-student-data";
+import { fetchAllStudentsFromStudentsCollection as fetchAllStudents } from "@/data/firebase-data";
 import { fetchHostels } from "@/data/hostel-data";
 import { fetchAllPayments } from "@/data/payment-data";
 import { Hostel, Room, Payment } from "@/types/hostel";
@@ -62,7 +62,7 @@ const ReportsPage = () => {
   const router = useRouter();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [hostels, setHostels] = useState<Hostel[]>([]);
-  const [students, setStudents] = useState<StudentData[]>([]);
+  const [students, setStudents] = useState<any[]>([]);
   const [allocations, setAllocations] = useState<RoomAllocation[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [selectedHostel, setSelectedHostel] = useState<string>("All");
@@ -91,7 +91,7 @@ const ReportsPage = () => {
       setLoading(true);
       const [hostelsData, studentsData, paymentsData] = await Promise.all([
         fetchHostels(),
-        fetchAllStudentsFromFirebase(),
+        fetchAllStudents(),
         fetchAllPayments(),
       ]);
       setHostels(hostelsData);
@@ -148,7 +148,7 @@ const ReportsPage = () => {
             paymentStatus = approvedPayment.status;
           }
           return {
-            name: student ? `${student.name} ${student.surname}` : a.studentRegNumber,
+            name: student ? ( student.name) : a.studentRegNumber,
             regNo: a.studentRegNumber,
             phone: student?.phone || "",
             programme: abbreviateProgramme(student?.programme || ""),
@@ -180,7 +180,7 @@ const ReportsPage = () => {
     // Fetch latest data
     const [hostelsData, studentsData, paymentsData] = await Promise.all([
       fetchHostels(),
-      fetchAllStudentsFromFirebase(),
+      fetchAllStudents(),
       fetchAllPayments(),
     ]);
     const allocationsSnapCheckin = await getDocs(collection(db, "roomAllocations"));
@@ -212,8 +212,9 @@ const ReportsPage = () => {
           paymentStatus = approvedPayment.status;
         }
         return {
-          name: student ? `${student.name} ${student.surname}` : a.studentRegNumber,
+          name: student ? ( student.name) : a.studentRegNumber,
           registration_number: a.studentRegNumber,
+          phone: student?.phone || "",
           gender: student?.gender || "",
           part: student?.part || "",
           hostel_name: hostel?.name || a.hostelId,
@@ -248,7 +249,7 @@ const ReportsPage = () => {
     // Fetch latest data
     const [hostelsData, studentsData, paymentsData] = await Promise.all([
       fetchHostels(),
-      fetchAllStudentsFromFirebase(),
+      fetchAllStudents(),
       fetchAllPayments(),
     ]);
     const allocationsSnapAccepted = await getDocs(collection(db, "roomAllocations"));
@@ -280,7 +281,7 @@ const ReportsPage = () => {
           paymentStatus = approvedPayment.status;
         }
         return {
-          name: student ? `${student.name} ${student.surname}` : a.studentRegNumber,
+          name: student ? ( student.name) : a.studentRegNumber,
           registration_number: a.studentRegNumber,
           gender: student?.gender || "",
           part: student?.part || "",
@@ -420,7 +421,7 @@ const ReportsPage = () => {
     // Fetch latest data
     const [hostelsData, studentsData] = await Promise.all([
       fetchHostels(),
-      fetchAllStudentsFromFirebase(),
+      fetchAllStudents(),
     ]);
     // Filter by hostel if needed
     let filteredHostels = hostelsData;
@@ -470,7 +471,7 @@ const ReportsPage = () => {
         }
       }
       const base: { [key: string]: string } = {
-        fullname: `${student.name} ${student.surname}`,
+        fullname:  student.name,
         regnumber: student.regNumber,
         programme: abbreviateProgramme(student.programme),
         hostel: hostel?.name || "",
