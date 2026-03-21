@@ -1,105 +1,40 @@
-import { useState, useEffect } from 'react'; 
-import { User } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { useRouter } from 'next/navigation';
-import { toast } from 'react-toastify';
+import { useSession, signIn as nextAuthSignIn, signOut as nextAuthSignOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { toast } from "react-toastify";
 
-type UserRole = 'user' | 'admin' | null;
+type UserRole = "user" | "admin" | null;
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<UserRole>(null);
+  const { data: session, status } = useSession();
   const router = useRouter();
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      if (user) {
-        try {
-          const userRef = doc(db, 'users', user.uid);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            const userRole = userSnap.data().role as UserRole;
-            setRole(userRole);
-          } else {
-            await setDoc(userRef, {
-              displayName: user.displayName,
-              email: user.email,
-              role: 'user',
-              createdAt: new Date().toISOString(),
-            });
-            setRole('user');
-            toast.success('Welcome to your new account!');
-          }
-        } catch (error) {
-          console.error('Error fetching or creating user:', error);
-          setRole(null);
-          toast.error('Error setting up user account');
-        }
-      } else {
-        setRole(null);
-      }
-      setLoading(false);
-    });
+  const user = session?.user ? {
+    uid: session.user.id || "",
+    email: session.user.email || "",
+    displayName: session.user.name || "",
+    // Include the role directly in the user object to help existing code
+    role: session.user.role as UserRole,
+  } : null;
 
-    return () => unsubscribe();
-  }, []);
+  const loading = status === "loading";
+  const role = (session?.user?.role as UserRole) || null;
 
   const signIn = async () => {
-    const provider = new GoogleAuthProvider();
-    //  provider.setCustomParameters({
-    //    hd: 'hit.ac.zw',
-    //  });
-
-
-
     try {
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
-      if (user) {
-        const userRef = doc(db, 'users', user.uid);
-        let userRole: UserRole = 'user';
-
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          userRole = userSnap.data().role as UserRole;
-          toast.success('Successfully logged in!');
-        } else {
-          await setDoc(userRef, {
-            displayName: user.displayName,
-            email: user.email,
-            role: 'user',
-            createdAt: new Date().toISOString(),
-          });
-          toast.success('Welcome to your new account!');
-        }
-
-        setRole(userRole);
-        if (userRole === 'admin') {
-          router.push('/admin');
-        } else {
-          router.push('/student/profile');
-        }
-      }
+      await nextAuthSignIn("google", { callbackUrl: "/" }); // the callback URL logic will handle redirect based on role
     } catch (error) {
-      console.error('Error signing in with Google', error);
-      toast.error('Failed to sign in with Google');
+      console.error("Error signing in with Google", error);
+      toast.error("Failed to sign in with Google");
     }
   };
 
   const signOutUser = async () => {
     try {
-      await signOut(auth);
-      setRole(null);
-      router.push('/');
-      toast.success('Successfully signed out');
+      await nextAuthSignOut({ callbackUrl: "/" });
+      toast.success("Successfully signed out");
     } catch (error) {
-      console.error('Error signing out', error);
-      toast.error('Failed to sign out');
+      console.error("Error signing out", error);
+      toast.error("Failed to sign out");
     }
   };
 
