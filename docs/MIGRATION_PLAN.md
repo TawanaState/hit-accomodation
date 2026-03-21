@@ -70,13 +70,13 @@ This migration is divided into isolated, testable jobs to ensure system stabilit
 
 **Goal:** Move all direct Firebase calls to Next.js API Routes or Server Actions.
 
-*   **Task 4.1: Abstract Application Data**
+*   **Task 3.1: Abstract Application Data**
     *   **Action:** Create Mongoose queries to replace `fetchAllApplications`, `updateApplicationStatus`, etc., in `data/firebase-data.ts`. Wrap these in Next.js Server Actions or API routes (`/api/applications`).
     *   **Testing Strategy:** Use Postman/Thunder Client to hit the new API endpoints. Verify data matches the expected Mongoose schema. Ensure the UI correctly displays the data fetched from the new endpoints.
-*   **Task 4.2: Abstract Hostel & Room Data (The Hardest Part)**
+*   **Task 3.2: Abstract Hostel & Room Data (The Hardest Part)**
     *   **Action:** This requires translating deeply nested Firestore queries into relational MongoDB queries (using `.populate()`). Create API routes (`/api/hostels`) to serve the normalized data in the structure the UI expects, or refactor the UI to handle flat arrays of rooms.
     *   **Testing Strategy:** Thoroughly test the UI rendering of the Hostel Selection screen. Ensure filtering (by gender, price, floor) works correctly using Mongoose query operators.
-*   **Task 4.3: Implement Transactional Room Allocation**
+*   **Task 3.3: Implement Transactional Room Allocation**
     *   **Action:** Refactor `allocateRoom` to use a Mongoose Transaction (requires a MongoDB Replica Set, even a single-node one in Docker). This is critical to prevent double-booking. The transaction must check room capacity, update the room occupants, and create the Allocation document atomically.
     *   **Testing Strategy:** Write an automated test or script that attempts to allocate the same room for two different students simultaneously. Verify only one succeeds and the other receives a "Room full" error, confirming transaction integrity.
 
