@@ -2,13 +2,25 @@
 
 
 services:
+  mongodb:
+    image: mongo:latest
+    container_name: rez-mongodb
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongodb_data:/data/db
+    restart: always
+
   nextjs:
     image: node:18
     container_name: rez-application
     working_dir: /app
+    depends_on:
+      - mongodb
     volumes:
       - .:/app
       - node_modules:/app/node_modules
+      - ./uploads:/app/uploads
     ports:
       - '3001:3000'
     env_file:
@@ -53,3 +65,4 @@ networks:
 volumes:
   node_modules:
   payment_logs:
+  mongodb_data:
