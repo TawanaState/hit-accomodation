@@ -208,6 +208,7 @@ export const fetchAvailableRooms = async (gender: 'Male' | 'Female'): Promise<Ro
 
 /**
  * Allocate a room to a student
+ * Refactored to use the new MongoDB-backed transaction API route.
  */
 export const allocateRoom = async (
   studentRegNumber: string,
@@ -215,89 +216,21 @@ export const allocateRoom = async (
   hostelId: string
 ): Promise<RoomAllocation> => {
   try {
-    // STRICT ID VALIDATION: Ensure hostelId is provided and valid
-    if (!hostelId || typeof hostelId !== 'string') {
-      throw new Error('Invalid hostel ID provided');
-    }
-
-    // STRICT ID VALIDATION: Verify hostel exists before proceeding
-    const hostel = await fetchHostelById(hostelId);
-    if (!hostel) {
-      throw new Error(`Hostel with ID ${hostelId} not found`);
-    }
-
-    // STRICT ID VALIDATION: Verify room exists in the specified hostel
-    let roomFound = false;
-    let targetRoom: Room | undefined;
-    
-    hostel.floors.forEach(floor => {
-      floor.rooms.forEach(room => {
-        if (room.id === roomId) {
-          roomFound = true;
-          targetRoom = room;
-        }
-      });
+    const res = await fetch("/api/allocations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ studentRegNumber, roomId, hostelId }),
     });
 
-    if (!roomFound || !targetRoom) {
-      throw new Error(`Room with ID ${roomId} not found in hostel ${hostel.name}`);
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || `Failed to allocate room: ${res.statusText}`);
     }
 
-    // Check room availability
-    if (!targetRoom.isAvailable || targetRoom.occupants.length >= targetRoom.capacity) {
-      throw new Error(`Room ${targetRoom.number} is not available for allocation`);
-    }
-
-    logHostelOperation('ALLOCATE', {
-      hostelId,
-      hostelName: hostel.name,
-      roomId,
-      roomNumber: targetRoom.number,
-      studentRegNumber,
-      operation: 'initial_allocation'
-    });
-
-    console.log(`[ROOM ALLOCATION] Student: ${studentRegNumber}, Room: ${roomId} (${targetRoom.number}), Hostel: ${hostelId} (${hostel.name})`);
-    
-    // Fetch hostel settings to get the grace period (which equals the deadline)
-    const settings = await fetchHostelSettings();
-    
-    // Create room allocation record
-    const allocation: Omit<RoomAllocation, 'id'> = {
-      studentRegNumber,
-      roomId,
-      hostelId,
-      allocatedAt: new Date().toISOString(),
-      paymentStatus: 'Pending',
-      paymentDeadline: new Date(Date.now() + settings.paymentGracePeriod * 60 * 60 * 1000).toISOString(),
-      semester: getCurrentSemester(),
-      academicYear: getCurrentAcademicYear()
-    };
-
-    const allocationsCollection = collection(db, "roomAllocations");
-    const docRef = await addDoc(allocationsCollection, allocation);
-
-    // Update room occupancy in the existing hostel object
-    const updatedHostel = { ...hostel };
-    updatedHostel.floors.forEach(floor => {
-      floor.rooms.forEach(room => {
-        if (room.id === roomId) {
-          room.occupants.push(studentRegNumber);
-          if (room.occupants.length >= room.capacity) {
-            room.isAvailable = false;
-          }
-        }
-      });
-    });
-    
-    await updateHostel(hostelId, updatedHostel);
-
-    console.log(`[ROOM ALLOCATION SUCCESS] Allocation ID: ${docRef.id}, Student: ${studentRegNumber}, Room: ${targetRoom.number}`);
-
-    return {
-      id: docRef.id,
-      ...allocation
-    };
+    const newAllocation = await res.json();
+    return newAllocation as RoomAllocation;
   } catch (error) {
     console.error("[ROOM ALLOCATION ERROR]", error);
     throw error;
