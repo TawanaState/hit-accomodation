@@ -1,14 +1,3 @@
-import { db } from "@/lib/firebase";
-import { 
-  collection, 
-  doc, 
-  getDocs, 
-  getDoc, 
-  query, 
-  where, 
-  orderBy 
-} from "firebase/firestore";
-
 // Keep the original interface for compatibility
 export interface StudentData {
   regNumber: string;
@@ -32,7 +21,16 @@ let cacheTimestamp: number = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Fetch all students from Firebase new-students collection
+ * Helper to get the base URL for API calls.
+ */
+const getBaseUrl = () => {
+  if (typeof window !== "undefined") return ""; // browser should use relative url
+  if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL;
+  return "http://localhost:3000";
+};
+
+/**
+ * Fetch all students from Next.js API
  */
 export const fetchAllStudentsFromFirebase = async (): Promise<StudentData[]> => {
   try {
@@ -43,26 +41,33 @@ export const fetchAllStudentsFromFirebase = async (): Promise<StudentData[]> => 
       return studentCache;
     }
 
-    console.log('Fetching students from Firebase...');
-    const studentsCollection = collection(db, "new-students");
-    const studentsSnap = await getDocs(studentsCollection);
+    console.log('Fetching students from API...');
+    const res = await fetch(`${getBaseUrl()}/api/students`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch students: ${res.statusText}`);
+    }
+
+    const students = await res.json() as StudentData[];
     
-    const students = studentsSnap.docs.map(doc => ({
-      regNumber: doc.id,
-      ...doc.data()
-    })) as StudentData[];    // Update cache
+    // Update cache
     studentCache = students;
     cacheTimestamp = now;
-    console.log(`Loaded ${students.length} students from Firebase`);
+    console.log(`Loaded ${students.length} students from API`);
     return students;
   } catch (error) {
-    console.error("Error fetching students from Firebase:", error);
-    throw new Error("Failed to fetch students from Firebase. Please ensure the new-students collection is populated.");
+    console.error("Error fetching students from API:", error);
+    throw new Error("Failed to fetch students. Please ensure the backend is running.");
   }
 };
 
 /**
- * Find a student by registration number (Firebase version)
+ * Find a student by registration number
  */
 export const findStudentByRegNumber = async (regNumber: string): Promise<StudentData | undefined> => {
   try {
@@ -74,31 +79,35 @@ export const findStudentByRegNumber = async (regNumber: string): Promise<Student
       }
     }
 
-    // If not in cache, fetch directly from Firebase
-    const studentDoc = doc(db, "new-students", regNumber);
-    const studentSnap = await getDoc(studentDoc);
-    
-    if (studentSnap.exists()) {
-      const studentData = {
-        regNumber: studentSnap.id,
-        ...studentSnap.data()
-      } as StudentData;
-        // Update cache with this student
-      if (studentCache) {
-        studentCache.push(studentData);
-      }
-      return studentData;
+    // If not in cache, fetch directly from API
+    const res = await fetch(`${getBaseUrl()}/api/students/${regNumber}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      if (res.status === 404) return undefined;
+      throw new Error(`Failed to find student ${regNumber}`);
+    }
+
+    const studentData = await res.json() as StudentData;
+
+    // Update cache with this student
+    if (studentCache) {
+      studentCache.push(studentData);
     }
     
-    return undefined;
+    return studentData;
   } catch (error) {
     console.error("Error finding student by registration number:", error);
-    throw new Error(`Failed to find student ${regNumber} in Firebase.`);
+    throw new Error(`Failed to find student ${regNumber}.`);
   }
 };
 
 /**
- * Get students by programme (Firebase version)
+ * Get students by programme
  */
 export const getStudentsByProgramme = async (programme: string): Promise<StudentData[]> => {
   try {
@@ -106,12 +115,12 @@ export const getStudentsByProgramme = async (programme: string): Promise<Student
     return students.filter(student => student.programme === programme);
   } catch (error) {
     console.error("Error fetching students by programme:", error);
-    throw new Error("Failed to fetch students by programme from Firebase.");
+    throw new Error("Failed to fetch students by programme.");
   }
 };
 
 /**
- * Get students by gender (Firebase version)
+ * Get students by gender
  */
 export const getStudentsByGender = async (gender: "Male" | "Female"): Promise<StudentData[]> => {
   try {
@@ -119,12 +128,12 @@ export const getStudentsByGender = async (gender: "Male" | "Female"): Promise<St
     return students.filter(student => student.gender === gender);
   } catch (error) {
     console.error("Error fetching students by gender:", error);
-    throw new Error("Failed to fetch students by gender from Firebase.");
+    throw new Error("Failed to fetch students by gender.");
   }
 };
 
 /**
- * Get students by part (Firebase version)
+ * Get students by part
  */
 export const getStudentsByPart = async (part: "1" | "2" | "3" | "4" | "5"): Promise<StudentData[]> => {
   try {
@@ -132,12 +141,12 @@ export const getStudentsByPart = async (part: "1" | "2" | "3" | "4" | "5"): Prom
     return students.filter(student => student.part === part);
   } catch (error) {
     console.error("Error fetching students by part:", error);
-    throw new Error("Failed to fetch students by part from Firebase.");
+    throw new Error("Failed to fetch students by part.");
   }
 };
 
 /**
- * Get student statistics (Firebase version)
+ * Get student statistics
  */
 export const getStudentStats = async () => {
   try {
@@ -149,7 +158,9 @@ export const getStudentStats = async () => {
     const programmeCounts = students.reduce((acc, student) => {
       acc[student.programme] = (acc[student.programme] || 0) + 1;
       return acc;
-    }, {} as Record<string, number>);    return {
+    }, {} as Record<string, number>);
+
+    return {
       total,
       maleCount,
       femaleCount,
@@ -157,7 +168,7 @@ export const getStudentStats = async () => {
     };
   } catch (error) {
     console.error("Error calculating student statistics:", error);
-    throw new Error("Failed to calculate student statistics from Firebase.");
+    throw new Error("Failed to calculate student statistics.");
   }
 };
 
@@ -177,18 +188,17 @@ export const searchStudents = async (searchTerm: string): Promise<StudentData[]>
     );
   } catch (error) {
     console.error("Error searching students:", error);
-    throw new Error("Failed to search students in Firebase.");
+    throw new Error("Failed to search students.");
   }
 };
 
 /**
- * Verify if a student exists in the new-students collection
+ * Verify if a student exists
  */
 export const verifyStudentExists = async (regNumber: string): Promise<boolean> => {
   try {
-    const studentDoc = doc(db, "new-students", regNumber);
-    const studentSnap = await getDoc(studentDoc);
-    return studentSnap.exists();
+    const student = await findStudentByRegNumber(regNumber);
+    return !!student;
   } catch (error) {
     console.error("Error verifying student existence:", error);
     return false;
@@ -215,4 +225,3 @@ export const preloadStudentData = async (): Promise<void> => {
     console.error("Error preloading student data:", error);
   }
 };
-

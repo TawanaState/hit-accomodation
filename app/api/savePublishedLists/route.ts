@@ -19,3 +19,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Failed to save published list" }, { status: 500 });
   }
 }
+export const dynamic = "force-dynamic";

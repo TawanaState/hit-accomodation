@@ -60,3 +60,35 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
+export async function POST(req: NextRequest) {
+  try {
+    await dbConnect();
+    const body = await req.json();
+
+    const { name } = body;
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return NextResponse.json({ error: "Hostel name is required" }, { status: 400 });
+    }
+
+    const trimmedName = name.trim();
+    const existingHostel = await Hostel.findOne({
+      name: { $regex: new RegExp(`^${trimmedName}$`, "i") },
+    }).lean();
+
+    if (existingHostel) {
+      return NextResponse.json(
+        { error: `A hostel with the name "${trimmedName}" already exists.` },
+        { status: 400 }
+      );
+    }
+
+    const newHostel = await Hostel.create({ ...body, name: trimmedName });
+
+    return NextResponse.json({ id: newHostel._id.toString(), ...newHostel.toObject() }, { status: 201 });
+  } catch (error) {
+    console.error("Error creating hostel:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}
+export const dynamic = "force-dynamic";

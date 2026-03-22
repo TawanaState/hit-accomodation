@@ -1,6 +1,3 @@
-import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, getDoc, updateDoc } from "firebase/firestore";
-
 // Define the type for the application
 export type Applications = {
   name: string;
@@ -73,17 +70,23 @@ export const updateApplicationStatus = async (
 };
 
 /**
- * Fetch all students from Firebase students collection (not new-students)
+ * Fetch all students from MongoDB students collection
  */
 export const fetchAllStudentsFromStudentsCollection = async (): Promise<any[]> => {
   try {
-    const studentsCollection = collection(db, "students");
-    const studentsSnap = await getDocs(studentsCollection);
-    const students = studentsSnap.docs.map(doc => ({
-      regNumber: doc.id,
-      ...doc.data()
-    }));
-    return students;
+    const res = await fetch("/api/students", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch students: ${res.statusText}`);
+    }
+
+    const studentsList = await res.json();
+    return studentsList;
   } catch (error) {
     console.error("Error fetching students from students collection:", error);
     throw new Error("Failed to fetch students from students collection. Please ensure the students collection is populated.");

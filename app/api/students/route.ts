@@ -14,30 +14,26 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const email = searchParams.get("email");
 
-    if (!email) {
-      return NextResponse.json(
-        { error: "email is required" },
-        { status: 400 }
-      );
-    }
-
     await dbConnect();
-
-    // Query User by email and extract regNumber.
-    // In MongoDB, we assume User model has studentRegNumber or we look up Student model
-    // Wait, the existing code says `collection(db, "students")`. Let's assume StudentProfile model exists.
-    // For now, let's fetch from the StudentProfile model.
     const { StudentProfile } = await import("@/models/StudentProfile");
-    const student = await StudentProfile.findOne({ email }).lean();
 
-    if (!student) {
-      return NextResponse.json(
-        { error: "Student not found" },
-        { status: 404 }
-      );
+    if (email) {
+      // Fetch specific student by email
+      const student = await StudentProfile.findOne({ email }).lean();
+
+      if (!student) {
+        return NextResponse.json(
+          { error: "Student not found" },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json(student);
+    } else {
+      // Fetch all students
+      const students = await StudentProfile.find({}).lean();
+      return NextResponse.json(students);
     }
-
-    return NextResponse.json(student);
   } catch (error) {
     console.error("Error fetching student:", error);
     return NextResponse.json(
@@ -46,3 +42,4 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+export const dynamic = "force-dynamic";

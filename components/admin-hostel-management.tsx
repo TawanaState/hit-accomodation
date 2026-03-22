@@ -56,7 +56,6 @@ import {
   fetchStudentProfile,
   adminAllocateStudentToRoom
 } from '@/data/hostel-data';
-import { getAuth } from 'firebase/auth';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { generateExcelFile } from '@/utils/generate_xl';
 
@@ -271,8 +270,8 @@ const AdminHostelManagement: React.FC = () => {
     const days = window.prompt(`Reserve room ${roomNumber} for how many days?`, '30');
     if (days && !isNaN(Number(days))) {
       try {
-        const auth = getAuth();
-        const adminEmail = auth.currentUser?.email || 'Unknown Admin';
+        // Fallback email, should ideally come from next-auth session context
+        const adminEmail = 'Unknown Admin';
         
         await reserveRoom(roomId, hostelId, adminEmail, Number(days));
         toast.success(`Room ${roomNumber} reserved successfully for ${days} days`);
