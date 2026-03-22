@@ -12,8 +12,6 @@ import {
 } from "./ui/table";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { fetchAllApplications } from "@/data/firebase-data";
-import { generateExcelFile } from "@/utils/generate_xl"; 
 import { toast } from "react-toastify";
 
 const SkeletonRow = () => (
@@ -37,12 +35,13 @@ const Archived = () => {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [applications, setApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [publishing, setPublishing] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchApplications = async () => {
       try {
-        const apps = await fetchAllApplications();
+        const response = await fetch("/api/applications");
+        if (!response.ok) throw new Error("Failed to fetch applications");
+        const apps = await response.json();
         setApplications(apps);
       } catch (error) {
         console.error("Error fetching applications:", error);
@@ -64,8 +63,6 @@ const Archived = () => {
           app.regNumber.toLowerCase().includes(searchQuery.toLowerCase()))
     );
   }, [applications, searchQuery]);
-
-  // handlePublish function if applicable
 
   return (
     <div className=" overflow-auto ">

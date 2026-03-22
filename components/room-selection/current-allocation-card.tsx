@@ -13,7 +13,6 @@ import {
   MapPin
 } from 'lucide-react';
 import { Room } from '@/types/hostel';
-import { getRoomDetailsFromAllocation } from '@/data/hostel-data';
 
 interface CurrentAllocationCardProps {
   existingAllocation: any;
@@ -33,30 +32,20 @@ const CurrentAllocationCard: React.FC<CurrentAllocationCardProps> = ({
   const [roomDetails, setRoomDetails] = useState<any>(allocationRoomDetails);
   
   useEffect(() => {
-    // Fetch room details using the same approach as in student-application.tsx
-    const fetchRoomDetails = async () => {
-      if (existingAllocation) {
-        const details = await getRoomDetailsFromAllocation(existingAllocation);
-        if (details) {
-          setRoomDetails({
-            ...details.room,
-            hostelName: details.hostel.name,
-            floorName: details.room.floorName,
-            price: details.price
-          });
-        }
-      }
-    };
-    
-    fetchRoomDetails();
-  }, [existingAllocation]);
+    // If the room details are passed directly, just use them
+    if (allocationRoomDetails) {
+       setRoomDetails(allocationRoomDetails);
+    }
+  }, [allocationRoomDetails]);
   
   if (!existingAllocation || !roomDetails) return null;
   
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Confirmed': return 'bg-green-100 text-green-800';
+      case 'Paid': return 'bg-green-100 text-green-800';
       case 'Pending': return 'bg-yellow-100 text-yellow-800';
+      case 'Overdue': return 'bg-red-100 text-red-800';
       case 'Expired': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }

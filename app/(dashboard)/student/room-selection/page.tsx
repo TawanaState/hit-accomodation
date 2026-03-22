@@ -4,86 +4,74 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import RoomSelection from '@/components/room-selection';
 import { StudentProfile } from '@/components/student-profile';
-import { getAuth } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { useSession } from 'next-auth/react';
 import { toast } from 'react-toastify';
 import { LoadingSpinner } from '@/components/loading-spinner';
 
 const RoomSelectionPage: React.FC = () => {
+  const { data: session } = useSession();
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [application, setApplication] = useState<any>(null);
   const [fetchAttempted, setFetchAttempted] = useState(false);
+
   useEffect(() => {
-    if (!fetchAttempted) {
+    if (!fetchAttempted && session?.user?.email) {
       setFetchAttempted(true);
       fetchStudentProfile();
+    } else if (!session) {
+      setLoading(false);
     }
-  }, [fetchAttempted]);
+  }, [fetchAttempted, session]);
 
   const fetchStudentProfile = async () => {
     try {
-      const auth = getAuth();
-      const user = auth.currentUser;
-      
-      if (user && user.email) {
-        const emailDomain = user.email.split('@')[1];
+      if (session && session.user.email) {
+        const emailDomain = session.user.email.split('@')[1];
         let regNumber = '';
         
         if (emailDomain === 'hit.ac.zw') {
           // For hit.ac.zw emails, use email prefix as registration number
-          regNumber = user.email.split('@')[0];
+          regNumber = session.user.email.split('@')[0];
         } else if (emailDomain === 'gmail.com') {
-          // For gmail.com emails, query the database to find the registration number
-          try {
-            const studentsQuery = query(
-              collection(db, 'students'),
-              where('email', '==', user.email)
-            );
-            const querySnapshot = await getDocs(studentsQuery);
-            
-            if (!querySnapshot.empty) {
-              regNumber = querySnapshot.docs[0].id;
-            } else {
-              // User not found in database - don't show toast here, let the UI handle it
-              console.log('User not found in database');
-              setLoading(false);
-              return;
-            }
-          } catch (queryError) {
-            console.error('Error querying student by email:', queryError);
-            // Don't show toast here, let the general error handler deal with it
-            setLoading(false);
-            return;
+          // Query the API to find the registration number
+          const response = await fetch(`/api/students?email=${session.user.email}`);
+          if (response.ok) {
+             const studentData = await response.json();
+             if (studentData && studentData.regNumber) {
+                regNumber = studentData.regNumber;
+             } else {
+                console.log('User not found in database');
+                setLoading(false);
+                return;
+             }
+          } else {
+             console.log('User not found in database');
+             setLoading(false);
+             return;
           }
         } else {
-          // Unsupported email domain - don't show toast here, let the UI handle it
           console.log('Unsupported email domain');
           setLoading(false);
           return;
         }
         
-        const userDoc = doc(db, 'students', regNumber);
-        const applicationDoc = doc(db, 'applications', regNumber);
-        
-        const [userSnap, applicationSnap] = await Promise.all([
-          getDoc(userDoc),
-          getDoc(applicationDoc)
-        ]);
-        
-        if (userSnap.exists()) {
-          setStudentProfile(userSnap.data() as StudentProfile);
+        // Fetch student profile using API
+        const profileRes = await fetch(`/api/students?email=${session.user.email}`);
+        if (profileRes.ok) {
+           const profileData = await profileRes.json();
+           setStudentProfile(profileData as StudentProfile);
         }
-        // Don't show toast if profile doesn't exist - let the UI handle it
 
-        if (applicationSnap.exists()) {
-          setApplication(applicationSnap.data());
+        // Fetch application using API
+        const appRes = await fetch(`/api/applications/${regNumber}`);
+        if (appRes.ok) {
+           const appData = await appRes.json();
+           setApplication(appData);
         }
       }
     } catch (error) {
       console.error('Error fetching student profile:', error);
-      // Only show one toast for general errors
       toast.error('Failed to load student data');
     } finally {
       setLoading(false);
@@ -96,7 +84,9 @@ const RoomSelectionPage: React.FC = () => {
 
   if (loading) {
     return <LoadingSpinner />;
-  }  if (!studentProfile) {
+  }
+
+  if (!studentProfile) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="max-w-2xl w-full mx-auto p-6">
@@ -130,6 +120,7 @@ const RoomSelectionPage: React.FC = () => {
       </div>
     );
   }
+
   if (!application) {
     return (
       <div className="flex items-center justify-center h-full">

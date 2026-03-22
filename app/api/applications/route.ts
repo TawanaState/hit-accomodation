@@ -21,15 +21,17 @@ export async function GET(req: NextRequest) {
       .sort({ submittedAt: -1 })
       .lean();
 
-    // Fetch all students from Firebase to merge data (since Student is not migrated to Mongo yet)
+    // Removing Firebase to pass build. We will depend on the existing applications' student details
+    // or look them up from Mongo `StudentProfile`. Wait, let's use StudentProfile model from Mongo.
     let studentsMap = new Map<string, any>();
     try {
-       const students = await fetchAllStudentsFromFirebase();
+       const { StudentProfile } = await import("@/models/StudentProfile");
+       const students = await StudentProfile.find().lean();
        students.forEach(s => {
          studentsMap.set(s.regNumber, s);
        });
     } catch (err) {
-       console.error("Warning: Could not fetch students from Firebase", err);
+       console.error("Warning: Could not fetch students from Mongo", err);
     }
 
     // For the UI, map Mongoose documents to the expected shape.

@@ -5,12 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from 'react-toastify';
 import { LoadingSpinner } from './loading-spinner';
 import { Hostel, Room } from '@/types/hostel';
-import { fetchHostels, allocateRoom, fetchHostelSettings, changeRoomAllocation, getAvailableRoomsForChange } from '@/data/hostel-data';
+import { fetchHostels } from '@/data/hostel-data';
 import { StudentProfile } from './student-profile';
-import { getAuth } from 'firebase/auth';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import StudentPaymentManagement from './student-payment-management';
+import { useSession } from 'next-auth/react';
 
 // Import new components
 import CurrentAllocationCard from './room-selection/current-allocation-card';
@@ -33,6 +31,8 @@ interface RoomSelectionProps {
 }
 
 const RoomSelection: React.FC<RoomSelectionProps> = ({ onRoomSelected, studentProfile }) => {
+  const { data: session } = useSession();
+
   // Core state
   const [hostels, setHostels] = useState<Hostel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,8 +83,11 @@ const RoomSelection: React.FC<RoomSelectionProps> = ({ onRoomSelected, studentPr
 
   const loadHostelSettings = async () => {
     try {
-      const settings = await fetchHostelSettings();
-      setHostelSettings(settings);
+      const res = await fetch("/api/settings/hostel");
+      if (res.ok) {
+         const settings = await res.json();
+         setHostelSettings(settings);
+      }
     } catch (error) {
       console.error('Failed to load hostel settings:', error);
     }
@@ -100,26 +103,26 @@ const RoomSelection: React.FC<RoomSelectionProps> = ({ onRoomSelected, studentPr
 
     try {
       setIsSelecting(true);
-      const auth = getAuth();
-      const user = auth.currentUser;
-      if (!user) return;
+      if (!session?.user?.email) return;
 
-      const emailDomain = user.email?.split("@")[1] || "";
+      const emailDomain = session.user.email.split("@")[1] || "";
       let regNumber = "";
 
       if (emailDomain === "hit.ac.zw") {
-        regNumber = user.email?.split("@")[0] || "";
-      } else if (emailDomain === "gmail.com" && user.email) {
-        const usersRef = collection(db, "students");
-        const q = query(usersRef, where("email", "==", user.email));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          const userData = querySnapshot.docs[0].data();
-          regNumber = userData.regNumber || "";
+        regNumber = session.user.email.split("@")[0] || "";
+      } else if (emailDomain === "gmail.com") {
+        const response = await fetch(`/api/students?email=${session.user.email}`);
+        if (response.ok) {
+           const studentData = await response.json();
+           if (studentData && studentData.regNumber) {
+              regNumber = studentData.regNumber;
+           } else {
+              toast.error("Profile not found. Please complete your profile first.");
+              return;
+           }
         } else {
-          toast.error("Profile not found. Please complete your profile first.");
-          return;
+           toast.error("Profile not found. Please complete your profile first.");
+           return;
         }
       } else {
         toast.error("Unsupported email domain.");
@@ -154,10 +157,23 @@ const RoomSelection: React.FC<RoomSelectionProps> = ({ onRoomSelected, studentPr
       
       console.log(`Allocating room ${selectedRoom.id} in hostel ${selectedHostel} (${hostelValidation.hostelName}) for student ${regNumber}`);
       
-      const settings = await fetchHostelSettings();
-      
       // STRICT ID USAGE: Always pass hostel ID, never names or other identifiers
-      await allocateRoom(regNumber, selectedRoom.id, selectedHostel);
+      const res = await fetch("/api/allocations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentRegNumber: regNumber, roomId: selectedRoom.id, hostelId: selectedHostel })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || `Failed to allocate room: ${res.statusText}`);
+      }
+
+      let settings = hostelSettings;
+      if (!settings) {
+         const setRes = await fetch("/api/settings/hostel");
+         settings = await setRes.json();
+      }
       
       const deadlineHours = settings.paymentGracePeriod;
       const deadlineDays = Math.round(deadlineHours / 24);
@@ -181,10 +197,9 @@ const RoomSelection: React.FC<RoomSelectionProps> = ({ onRoomSelected, studentPr
     if (!studentProfile || !existingAllocation || !studentProfile.gender) return;
     
     try {
-      const availableRooms = await getAvailableRoomsForChange(
-        existingAllocation.studentRegNumber, 
-        studentProfile.gender as 'Male' | 'Female'
-      );
+      const res = await fetch(`/api/allocations/available-rooms?studentRegNumber=${existingAllocation.studentRegNumber}&gender=${studentProfile.gender}&isAdminAction=false`);
+      if (!res.ok) throw new Error("Failed to fetch available rooms");
+      const availableRooms = await res.json();
       setAvailableRoomsForChange(availableRooms);
       setShowChangeRoomDialog(true);
     } catch (error) {
@@ -221,12 +236,22 @@ const RoomSelection: React.FC<RoomSelectionProps> = ({ onRoomSelected, studentPr
         operation: 'room_change_using_hostel_id'
       });
       
-      await changeRoomAllocation(
-        existingAllocation.studentRegNumber,
-        selectedNewRoom.id,
-        targetHostelId, // Use the direct hostelId instead of looking up by name
-        studentProfile.gender as 'Male' | 'Female'
-      );
+      const res = await fetch("/api/allocations/change", {
+         method: "PUT",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({
+           studentRegNumber: existingAllocation.studentRegNumber,
+           newRoomId: selectedNewRoom.id,
+           newHostelId: targetHostelId,
+           studentGender: studentProfile.gender,
+           isAdminAction: false
+         })
+      });
+
+      if (!res.ok) {
+         const errorData = await res.json();
+         throw new Error(errorData.error || "Failed to change room");
+      }
 
       toast.success(`Room changed successfully to ${selectedNewRoom.number}!`);
       

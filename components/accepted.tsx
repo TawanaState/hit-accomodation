@@ -5,15 +5,11 @@ import { BarChart2, Users, PieChart, Printer, Upload, Home, MapPin } from 'lucid
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { getAuth } from "firebase/auth";
-import { fetchAllApplications } from "@/data/firebase-data";
-import { fetchStudentAllocations, getRoomDetailsFromAllocation } from "@/data/hostel-data";
-import { fetchAllPayments } from "@/data/payment-data";
-import { setDoc, collection, getFirestore, doc, getDocs, deleteDoc } from "firebase/firestore";
+import { useSession } from "next-auth/react";
 import { Pie, Bar } from "react-chartjs-2";
 import { Chart as ChartJS, Title, Tooltip, Legend, ArcElement, CategoryScale, LinearScale, BarElement } from "chart.js";
 import { toast } from "react-toastify";
-import { generateExcelFile } from "@/utils/generate_xl"; // Ensure correct import path
+import { generateExcelFile } from "@/utils/generate_xl";
 import { Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
 
 // Register ChartJS components
@@ -71,7 +67,6 @@ const AcceptedStudentRow = React.memo(({
   </TableRow>
 ));
 
-
 const Skeleton = ({ rows = 5 }) => (
   <div className="w-full max-w-5xl mx-auto p-4">
     {[...Array(rows)].map((_, index) => (
@@ -103,8 +98,8 @@ const StatisticsSkeleton = () => (
   </>
 );
 
-
 const Accepted = React.memo(() => {
+  const { data: session } = useSession();
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>("");
   const [applications, setApplications] = useState<any[]>([]);
@@ -126,7 +121,7 @@ const Accepted = React.memo(() => {
   }, [searchQuery]);
 
   // Optimized function to fetch all student data in batches
-  const fetchStudentDataInBatches = useCallback(async (acceptedApps: any[], payments: any[]) => {
+  const fetchStudentDataInBatches = useCallback(async (acceptedApps: any[], payments: any[], hostels: any[]) => {
     setDataLoading(true);
     setLoadingProgress(0);
     const batchSize = 10; // Process 10 students at a time
@@ -139,45 +134,60 @@ const Accepted = React.memo(() => {
       
       const batchPromises = batch.map(async (app) => {
         try {
-          const allocations = await fetchStudentAllocations(app.regNumber);
+          const res = await fetch(`/api/allocations?studentRegNumber=${app.regNumber}`);
+          if (!res.ok) throw new Error("Failed to fetch allocations");
+          const allocations = await res.json();
           
           if (allocations.length > 0) {
             const allocation = allocations[0];
             
-            // Get room details for this allocation
-            const roomDetails = await getRoomDetailsFromAllocation(allocation);
-            
-            if (roomDetails) {
-              // Set hostel details
-              hostelDetailsMap[app.regNumber] = {
-                hostelName: roomDetails.hostel.name,
-                roomNumber: roomDetails.room.number,
-                floor: roomDetails.room.floor
-              };
-              
-              // Calculate payment status
-              const studentPayments = payments.filter(payment => 
-                allocations.some(alloc => alloc.id === payment.allocationId) &&
-                payment.status === 'Approved'
-              );
-              
-              if (studentPayments.length > 0) {
-                const totalPaid = studentPayments.reduce((sum, payment) => sum + payment.amount, 0);
-                const requiredAmount = roomDetails.price;
+            // Get room details for this allocation by looking up hostel endpoint
+            const hostel = hostels.find((h: any) => h.id === allocation.hostelId);
+            if (hostel) {
+              let roomDetails: any = null;
+              hostel.floors.forEach((floor: any) => {
+                floor.rooms.forEach((room: any) => {
+                  if (room.id === allocation.roomId) {
+                    roomDetails = {
+                       ...room,
+                       hostelName: hostel.name,
+                       floorName: floor.name
+                    }
+                  }
+                });
+              });
+              if (roomDetails) {
+                hostelDetailsMap[app.regNumber] = {
+                  hostelName: roomDetails.hostelName,
+                  roomNumber: roomDetails.number,
+                  floor: roomDetails.floorName
+                };
                 
-                if (totalPaid >= requiredAmount) {
-                  paymentMap[app.regNumber] = 'Paid';
-                } else if (totalPaid > 0) {
-                  paymentMap[app.regNumber] = 'Partial';
+                // Calculate payment status
+                const studentPayments = payments.filter(payment =>
+                  allocations.some((alloc: any) => alloc.id === payment.allocationId) &&
+                  payment.status === 'Approved'
+                );
+
+                if (studentPayments.length > 0) {
+                  const totalPaid = studentPayments.reduce((sum, payment) => sum + payment.amount, 0);
+                  const requiredAmount = roomDetails.price;
+
+                  if (totalPaid >= requiredAmount) {
+                    paymentMap[app.regNumber] = 'Paid';
+                  } else if (totalPaid > 0) {
+                    paymentMap[app.regNumber] = 'Partial';
+                  } else {
+                    paymentMap[app.regNumber] = 'Pending';
+                  }
                 } else {
                   paymentMap[app.regNumber] = 'Pending';
                 }
-              } else {
-                paymentMap[app.regNumber] = 'Pending';
               }
-            } else {
-              // No room details found
-              hostelDetailsMap[app.regNumber] = {
+            }
+            if (!hostelDetailsMap[app.regNumber]) {
+               // Fallback if not found
+               hostelDetailsMap[app.regNumber] = {
                 hostelName: "Not Allocated",
                 roomNumber: "-",
                 floor: "-"
@@ -226,17 +236,22 @@ const Accepted = React.memo(() => {
   useEffect(() => {
     const fetchApplications = async () => {
       try {
-        const [apps, payments] = await Promise.all([
-          fetchAllApplications(),
-          fetchAllPayments()
+        const [appsRes, paymentsRes, hostelsRes] = await Promise.all([
+          fetch("/api/applications"),
+          fetch("/api/payments"),
+          fetch("/api/hostels")
         ]);
         
+        const apps = await appsRes.json();
+        const payments = await paymentsRes.json();
+        const hostels = await hostelsRes.json();
+
         setApplications(apps);
         
-        const acceptedApps = apps.filter(app => app.status === "Accepted");
+        const acceptedApps = apps.filter((app: any) => app.status === "Accepted");
         
         // Fetch all student data in optimized batches
-        const { paymentMap, hostelDetailsMap } = await fetchStudentDataInBatches(acceptedApps, payments);
+        const { paymentMap, hostelDetailsMap } = await fetchStudentDataInBatches(acceptedApps, payments, hostels);
         
         setPaymentStatuses(paymentMap);
         setHostelDetails(hostelDetailsMap);
@@ -295,9 +310,7 @@ const Accepted = React.memo(() => {
     setConfirmDialogOpen(false);
     setPublishing(true);
     try {
-      const db = getFirestore();
-      const activityLogsCollectionRef = collection(db, "ActivityLogs");
-      const adminEmail = getAuth().currentUser?.email || "Unknown Admin";
+      const adminEmail = session?.user?.email || "Unknown Admin";
       const publishedList = acceptedApplications.map((app) => ({
         name: app.name,
         gender: app.gender,
@@ -311,11 +324,6 @@ const Accepted = React.memo(() => {
       });
       if (!response.ok) throw new Error("Failed to save the published list");
 
-      await setDoc(doc(activityLogsCollectionRef), {
-        adminEmail,
-        activity: "Published the list of accepted applications",
-        timestamp: new Date().toISOString(),
-      });
       toast.success("Published list saved successfully!");
     } catch (error) {
       console.error("Publish error:", error);
@@ -323,7 +331,7 @@ const Accepted = React.memo(() => {
     } finally {
       setPublishing(false);
     }
-  }, [acceptedApplications]);
+  }, [acceptedApplications, session]);
 
   
 

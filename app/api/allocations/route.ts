@@ -2,11 +2,71 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
-import { Room } from "@/models/Room";
-import { Hostel } from "@/models/Hostel";
 import { Allocation } from "@/models/Allocation";
 import { Session } from "@/models/Session";
+import { Room } from "@/models/Room";
+import { Hostel } from "@/models/Hostel";
 import mongoose from "mongoose";
+
+export async function GET(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const studentRegNumber = searchParams.get("studentRegNumber");
+
+    if (!studentRegNumber) {
+      return NextResponse.json(
+        { error: "studentRegNumber is required" },
+        { status: 400 }
+      );
+    }
+
+    await dbConnect();
+
+    // Find the active session
+    const activeSession = await Session.findOne({ isActive: true });
+
+    let sessionFilter = {};
+    if (activeSession) {
+      sessionFilter = { session: activeSession._id };
+    }
+
+    // Find allocations for the student
+    const allocations = await Allocation.find({
+      studentRegNumber,
+      ...sessionFilter
+    })
+      .sort({ allocatedAt: -1 })
+      .lean();
+
+    // Map the relational data to the nested structure expected by the UI.
+    const formattedAllocations = allocations.map((allocation) => ({
+      id: allocation._id.toString(),
+      studentRegNumber: allocation.studentRegNumber,
+      roomId: allocation.room.toString(),
+      hostelId: allocation.hostel.toString(),
+      sessionId: allocation.session.toString(),
+      allocatedAt: allocation.allocatedAt,
+      paymentStatus: allocation.paymentStatus,
+      paymentDeadline: allocation.paymentDeadline,
+      semester: allocation.semester,
+      academicYear: allocation.academicYear,
+      paymentId: allocation.paymentId?.toString()
+    }));
+
+    return NextResponse.json(formattedAllocations);
+  } catch (error) {
+    console.error("Error fetching allocations:", error);
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    );
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -112,7 +172,18 @@ export async function POST(req: NextRequest) {
       await mongooseSession.commitTransaction();
       mongooseSession.endSession();
 
-      return NextResponse.json(newAllocation);
+      return NextResponse.json({
+        id: newAllocation._id.toString(),
+        studentRegNumber: newAllocation.studentRegNumber,
+        roomId: newAllocation.room.toString(),
+        hostelId: newAllocation.hostel.toString(),
+        sessionId: newAllocation.session.toString(),
+        allocatedAt: newAllocation.allocatedAt,
+        paymentStatus: newAllocation.paymentStatus,
+        paymentDeadline: newAllocation.paymentDeadline,
+        semester: newAllocation.semester,
+        academicYear: newAllocation.academicYear,
+      });
     } catch (transactionError: any) {
       // Abort transaction on error
       await mongooseSession.abortTransaction();
