@@ -94,8 +94,10 @@ const AdminHostelManagement: React.FC = () => {
     description: '',
     pricePerSemester: 0,
     gender: 'Mixed' as 'Male' | 'Female' | 'Mixed',
-    features: ''
+    features: '',
+    images: [] as string[]
   });
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const [newRoomsForm, setNewRoomsForm] = useState({
     hostelId: '',
@@ -188,7 +190,8 @@ const AdminHostelManagement: React.FC = () => {
         description: '',
         pricePerSemester: 0,
         gender: 'Mixed',
-        features: ''
+        features: '',
+        images: []
       });
       setIsCreateDialogOpen(false);
       loadData();
@@ -196,6 +199,42 @@ const AdminHostelManagement: React.FC = () => {
       toast.error('Failed to create hostel');
     }
   };
+  const handleHostelImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploadingImage(true);
+      const data = new FormData();
+      data.append('file', file);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: data,
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const result = await response.json();
+      if (result.success && result.url) {
+        setNewHostel(prev => ({
+          ...prev,
+          images: [...prev.images, result.url]
+        }));
+        toast.success('Image uploaded successfully');
+      } else {
+        throw new Error(result.message || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      toast.error('Failed to upload image');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const handleDeleteHostel = async (hostelId: string) => {
     if (window.confirm('Are you sure you want to delete this hostel? This will also remove all related room allocations and cannot be undone.')) {
       try {
@@ -1389,7 +1428,37 @@ const AdminHostelManagement: React.FC = () => {
                     placeholder="WiFi, Security, Laundry"
                   />
                 </div>
-                <Button onClick={handleCreateHostel} className="w-full">
+                <div>
+                  <Label htmlFor="hostelImage">Hostel Image (Optional)</Label>
+                  <Input
+                    id="hostelImage"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleHostelImageUpload}
+                    disabled={uploadingImage}
+                  />
+                  {uploadingImage && <p className="text-sm text-gray-500 mt-1">Uploading...</p>}
+                  {newHostel.images.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {newHostel.images.map((url, index) => (
+                        <div key={index} className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded text-sm">
+                          <img src={url} alt={`Hostel ${index + 1}`} className="w-8 h-8 object-cover rounded" />
+                          <button
+                            type="button"
+                            className="text-red-500 hover:text-red-700 ml-2"
+                            onClick={() => setNewHostel(prev => ({
+                              ...prev,
+                              images: prev.images.filter((_, i) => i !== index)
+                            }))}
+                          >
+                            <XCircle className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <Button onClick={handleCreateHostel} disabled={uploadingImage} className="w-full">
                   Create Hostel                </Button>
               </div>
             </DialogContent>

@@ -43,8 +43,10 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
     receiptNumber: '',
     amount: '',
     paymentMethod: 'Bank Transfer' as Payment['paymentMethod'],
-    notes: ''
+    notes: '',
+    attachments: [] as string[]
   });
+  const [uploading, setUploading] = useState(false);
 
   const auth = getAuth();
 
@@ -165,8 +167,45 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
       receiptNumber: '',
       amount: '',
       paymentMethod: 'Bank Transfer',
-      notes: ''
+      notes: '',
+      attachments: []
     });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploading(true);
+      const data = new FormData();
+      data.append('file', file);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: data,
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const result = await response.json();
+      if (result.success && result.url) {
+        setFormData(prev => ({
+          ...prev,
+          attachments: [...prev.attachments, result.url]
+        }));
+        toast.success('Receipt uploaded successfully');
+      } else {
+        throw new Error(result.message || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      toast.error('Failed to upload file');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleSubmitPayment = async () => {
@@ -182,7 +221,8 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
         receiptNumber: formData.receiptNumber,
         amount: parseFloat(formData.amount),
         paymentMethod: formData.paymentMethod,
-        notes: formData.notes
+        notes: formData.notes,
+        attachments: formData.attachments
       });
 
       toast.success('Payment submitted successfully! Awaiting admin approval.');
@@ -204,7 +244,8 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
       await updateStudentPayment(selectedPayment.id, {
         receiptNumber: formData.receiptNumber,
         paymentMethod: formData.paymentMethod,
-        notes: formData.notes
+        notes: formData.notes,
+        attachments: formData.attachments
       });
 
       toast.success('Payment updated successfully!');
@@ -223,7 +264,8 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
       receiptNumber: payment.receiptNumber,
       amount: payment.amount.toString(),
       paymentMethod: payment.paymentMethod,
-      notes: payment.notes || ''
+      notes: payment.notes || '',
+      attachments: payment.attachments || []
     });
     setEditDialogOpen(true);
   };
@@ -234,7 +276,8 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
       receiptNumber: '',
       amount: price.toString(),
       paymentMethod: 'Bank Transfer',
-      notes: ''
+      notes: '',
+      attachments: []
     });
     setSubmitDialogOpen(true);
   };
@@ -446,6 +489,18 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
                             {payment.notes && (
                               <p className="text-sm text-gray-600">Notes: {payment.notes}</p>
                             )}
+                            {payment.attachments && payment.attachments.length > 0 && (
+                              <div className="mt-2">
+                                <p className="text-sm font-medium">Attachments:</p>
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                  {payment.attachments.map((url, i) => (
+                                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded border border-blue-200">
+                                      View Receipt {i + 1}
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                           <div className="flex gap-2">
                             {payment.status === 'Pending' && (
@@ -527,11 +582,45 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
                 placeholder="Any additional notes about the payment"
               />
             </div>
+
+            <div>
+              <Label htmlFor="receiptFile">Upload Receipt Image/PDF (Optional)</Label>
+              <Input
+                id="receiptFile"
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={handleFileUpload}
+                disabled={uploading}
+              />
+              {uploading && <p className="text-sm text-gray-500 mt-1">Uploading...</p>}
+              {formData.attachments.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {formData.attachments.map((url, index) => (
+                    <div key={index} className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded text-sm">
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        Attachment {index + 1}
+                      </a>
+                      <button
+                        type="button"
+                        className="text-red-500 hover:text-red-700 ml-2"
+                        onClick={() => setFormData(prev => ({
+                          ...prev,
+                          attachments: prev.attachments.filter((_, i) => i !== index)
+                        }))}
+                      >
+                        <XCircle className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setSubmitDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmitPayment}>
+              <Button onClick={handleSubmitPayment} disabled={uploading}>
                 Submit Payment
               </Button>
             </div>
@@ -584,11 +673,45 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
                 placeholder="Any additional notes about the payment"
               />
             </div>
+
+            <div>
+              <Label htmlFor="editReceiptFile">Upload Receipt Image/PDF (Optional)</Label>
+              <Input
+                id="editReceiptFile"
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={handleFileUpload}
+                disabled={uploading}
+              />
+              {uploading && <p className="text-sm text-gray-500 mt-1">Uploading...</p>}
+              {formData.attachments.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {formData.attachments.map((url, index) => (
+                    <div key={index} className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded text-sm">
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        Attachment {index + 1}
+                      </a>
+                      <button
+                        type="button"
+                        className="text-red-500 hover:text-red-700 ml-2"
+                        onClick={() => setFormData(prev => ({
+                          ...prev,
+                          attachments: prev.attachments.filter((_, i) => i !== index)
+                        }))}
+                      >
+                        <XCircle className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpdatePayment}>
+              <Button onClick={handleUpdatePayment} disabled={uploading}>
                 Update Payment
               </Button>
             </div>

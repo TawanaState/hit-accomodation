@@ -41,8 +41,10 @@ const PaymentStatusModal = ({ isOpen, onClose, student, onUpdate }: PaymentStatu
     receiptNumber: '',
     amount: '',
     paymentMethod: 'Bank Transfer' as Payment['paymentMethod'],
-    notes: ''
+    notes: '',
+    attachments: [] as string[]
   });
+  const [uploading, setUploading] = useState(false);
 
   const auth = getAuth();
 
@@ -56,10 +58,47 @@ const PaymentStatusModal = ({ isOpen, onClose, student, onUpdate }: PaymentStatu
         receiptNumber: '',
         amount: '',
         paymentMethod: 'Bank Transfer',
-        notes: ''
+        notes: '',
+        attachments: []
       });
     }
   }, [isOpen, student]);
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploading(true);
+      const data = new FormData();
+      data.append('file', file);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: data,
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const result = await response.json();
+      if (result.success && result.url) {
+        setPaymentForm(prev => ({
+          ...prev,
+          attachments: [...prev.attachments, result.url]
+        }));
+        toast.success('Receipt uploaded successfully');
+      } else {
+        throw new Error(result.message || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      toast.error('Failed to upload file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!paymentStatus || !reference) {
       toast.error("Please fill in all fields");
@@ -108,7 +147,8 @@ const PaymentStatusModal = ({ isOpen, onClose, student, onUpdate }: PaymentStatu
         receiptNumber: paymentForm.receiptNumber,
         amount: parseFloat(paymentForm.amount),
         paymentMethod: paymentForm.paymentMethod,
-        notes: paymentForm.notes
+        notes: paymentForm.notes,
+        attachments: paymentForm.attachments
       }, adminEmail);
 
       // Update student payment status to Paid
@@ -222,6 +262,39 @@ const PaymentStatusModal = ({ isOpen, onClose, student, onUpdate }: PaymentStatu
                   placeholder="Any additional notes"
                 />
               </div>
+
+              <div>
+                <Label htmlFor="receiptFile">Upload Receipt Image/PDF (Optional)</Label>
+                <Input
+                  id="receiptFile"
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={handleFileUpload}
+                  disabled={uploading}
+                />
+                {uploading && <p className="text-sm text-gray-500 mt-1">Uploading...</p>}
+                {paymentForm.attachments.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {paymentForm.attachments.map((url, index) => (
+                      <div key={index} className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded text-sm">
+                        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                          Attachment {index + 1}
+                        </a>
+                        <button
+                          type="button"
+                          className="text-red-500 hover:text-red-700 ml-2"
+                          onClick={() => setPaymentForm(prev => ({
+                            ...prev,
+                            attachments: prev.attachments.filter((_, i) => i !== index)
+                          }))}
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -235,7 +308,7 @@ const PaymentStatusModal = ({ isOpen, onClose, student, onUpdate }: PaymentStatu
               <Button onClick={() => setShowAddPayment(false)} variant="outline">
                 Back
               </Button>
-              <Button onClick={handleAddPayment}>
+              <Button onClick={handleAddPayment} disabled={uploading}>
                 Add Payment
               </Button>
             </>
