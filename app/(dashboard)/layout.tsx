@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { AppDrawer } from "@/components/app-drawer";
-import { getFirestore, doc, getDoc } from "firebase/firestore";
 import { useSessionContext } from "@/providers/SessionProvider";
 import {
   Select,
@@ -24,17 +23,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [applicationStartTime, setApplicationStartTime] = useState<Date | null>(null);
 
-  const db = getFirestore();
-  const settingsDocRef = doc(db, "Settings", "ApplicationLimits");
-
   useEffect(() => {
     const checkApplicationTime = async () => {
       if (!loading && user) {
         try {
-          // Fetch application start time from Firestore
-          const docSnapshot = await getDoc(settingsDocRef);
-          if (docSnapshot.exists()) {
-            const data = docSnapshot.data();
+          const res = await fetch("/api/settings/application-limits");
+          if (res.ok) {
+            const data = await res.json();
             const startDateTime = data.startDateTime;
 
             if (startDateTime) {
@@ -59,7 +54,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     };
 
     checkApplicationTime();
-  }, [user, loading, router]);
+  }, [user, loading, router, role]);
 
   useEffect(() => {
     if (applicationStartTime && role !== "admin") {

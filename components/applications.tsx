@@ -4,13 +4,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Button } from "./ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
 import { Input } from "./ui/input"
-import { getAuth } from "firebase/auth"
-import { collection, doc, setDoc, getDoc, getFirestore } from "firebase/firestore"
 import { fetchAllApplications } from "@/data/firebase-data"
 import { Separator } from "./ui/separator"
 import { updateApplicationStatus } from "@/data/firebase-data"
 import { programmes } from "@/data/programmes"
 import { toast } from "react-toastify"
+import { useSessionContext } from "@/providers/SessionProvider"
 
 const SkeletonLoader = ({ rows = 10, cols = 10 }) => {
   return (
@@ -37,16 +36,15 @@ const Applications = () => {
   const [boyLimit, setBoyLimit] = useState<number>(0)
   const [girlLimit, setGirlLimit] = useState<number>(0)
 
-  const db = getFirestore()
-  const settingsDocRef = doc(db, "Settings", "ApplicationLimits")
+  const { selectedSession } = useSessionContext();
 
   // Fetch application limits
   useEffect(() => {
     const fetchLimits = async () => {
       try {
-        const docSnapshot = await getDoc(settingsDocRef)
-        if (docSnapshot.exists()) {
-          const data = docSnapshot.data()
+        const res = await fetch("/api/settings/application-limits");
+        if (res.ok) {
+          const data = await res.json();
           setBoyLimit(data.boyLimit || 0)
           setGirlLimit(data.girlLimit || 0)
         }
@@ -73,10 +71,7 @@ const Applications = () => {
     fetchApplications()
   }, [])
 
-  const handleStatusChange = async (regNumber: string, newStatus: "Accepted" | "Archived" | "Pending") => {
-    const activityLogsCollectionRef = collection(db, "ActivityLogs")
-    const adminEmail = getAuth().currentUser?.email || "Unknown Admin"
-
+  const handleStatusChange = async (regNumber: string, newStatus: "Accepted" | "Archived" | "Pending" | "Rejected") => {
     try {
       const application = applications.find((app) => app.regNumber === regNumber)
 
@@ -98,17 +93,9 @@ const Applications = () => {
       setApplications((prevApps) =>
         prevApps.map((app) => (app.regNumber === regNumber ? { ...app, status: newStatus } : app)),
       )
-toast.success(`Application status changed successfully.`)
-      await setDoc(doc(activityLogsCollectionRef), {
-        adminEmail,
-        activity: `Changed status of application`,
-        regNumber,
-        oldStatus,
-        newStatus,
-        timestamp: new Date().toISOString(),
-      })
+      toast.success(`Application status changed successfully.`)
 
-      console.log("Status change logged successfully.")
+      // We will handle logging on the server-side API or skip it for now.
     } catch (error) {
       console.error("Error updating application status:", error)
     }
@@ -128,6 +115,7 @@ toast.success(`Application status changed successfully.`)
   const filteredApplications = useMemo(() => {
     return applications
     .filter((application) => {
+      const sessionMatch = selectedSession ? application.session?._id === selectedSession._id : true;
       const partMatch = selectedPart === "all" || application.part.toString() === selectedPart
       const genderMatch = selectedGender === "all" || application.gender === selectedGender
       const statusMatch = selectedStatus === "all" || application.status === selectedStatus
@@ -136,7 +124,7 @@ toast.success(`Application status changed successfully.`)
         searchQuery === "" ||
         application.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         application.regNumber.toLowerCase().includes(searchQuery.toLowerCase())
-      return partMatch && genderMatch && statusMatch && programmeMatch && searchMatch
+      return sessionMatch && partMatch && genderMatch && statusMatch && programmeMatch && searchMatch
     })
     .sort((a, b) => {
       const dateComparison = new Date(a.date).getTime() - new Date(b.date).getTime()

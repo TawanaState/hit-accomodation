@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { getFirestore, doc, getDoc } from "firebase/firestore"
 import { toast } from "react-toastify"
 import { Clock } from "lucide-react"
 
@@ -11,15 +10,12 @@ const CountdownPage = () => {
   const [countdown, setCountdown] = useState<string>("Loading...")
   const [loading, setLoading] = useState<boolean>(true)
 
-  const db = getFirestore()
-  const settingsDocRef = doc(db, "Settings", "ApplicationLimits")
-
   useEffect(() => {
     const fetchStartTime = async () => {
       try {
-        const docSnapshot = await getDoc(settingsDocRef)
-        if (docSnapshot.exists()) {
-          const data = docSnapshot.data()
+        const res = await fetch("/api/settings/application-limits");
+        if (res.ok) {
+          const data = await res.json();
           const fetchedStartTime = data.startDateTime
           if (fetchedStartTime) {
             setStartTime(new Date(fetchedStartTime))

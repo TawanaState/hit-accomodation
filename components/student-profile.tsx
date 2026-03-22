@@ -13,8 +13,6 @@ import {
   where,
   getDocs,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { getAuth } from "firebase/auth";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -64,6 +62,7 @@ import { Combobox } from "./ui/combobox";
 import { programmes } from "@/data/programmes";
 import { findStudentByRegNumber, type StudentData } from "@/data/firebase-student-data";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
 
 // Updated Student interface to match StudentData structure
 interface Student {
@@ -127,77 +126,60 @@ const StudentProfileForm: React.FC<{}> = () => {
     },
   });
 
+  const { user, loading: authLoading } = useAuth();
+
   useEffect(() => {
     const fetchProfile = async () => {
+      if (authLoading) return;
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
       setIsLoading(true);
       try {
-        const auth = getAuth();
-        const user = auth.currentUser;
+        const emailDomain = user.email?.split("@")[1] || "";
+        let regNumber = "";
 
-        if (user) {
-          const emailDomain = user.email?.split("@")[1] || "";
-          let regNumber = "";
+        setAuthDetails({
+          userName: user.displayName || "",
+          userEmail: user.email || "",
+          regNumber,
+        });
 
-          setAuthDetails({
-            userName: user.displayName || "",
-            userEmail: user.email || "",
-            regNumber,
-          });          if (emailDomain === "hit.ac.zw") {
-            // For hit.ac.zw domain users
+        // Try to fetch profile from our MongoDB backend
+        const res = await fetch("/api/profile");
+        if (res.ok) {
+          const profileData = await res.json();
+          form.reset({
+            name: profileData.name || user.displayName || "",
+            phone: profileData.phone || "",
+            regNumber: profileData.regNumber || "",
+            gender: profileData.gender,
+            part: profileData.part,
+            programme: profileData.programme || "",
+          });
+
+          setAuthDetails((prev) => ({
+            ...prev,
+            userName: profileData.name || user.displayName || "",
+            regNumber: profileData.regNumber || "",
+          }));
+        } else {
+          // If no profile, we either show edit mode for hit.ac.zw users, or onboarding for gmail
+          if (emailDomain === "hit.ac.zw") {
             regNumber = user.email?.split("@")[0] || "";
             setAuthDetails((prev) => ({ ...prev, regNumber }));
-
-            const userDoc = doc(db, "students", regNumber);
-            const docSnap = await getDoc(userDoc);
-
-            if (docSnap.exists()) {
-              const data = docSnap.data();
-              form.reset({
-                name: data.name || user.displayName || "",
-                phone: data.phone || "",
-                regNumber: data.regNumber || regNumber,
-                gender: data.gender,
-                part: data.part,
-                programme: data.programme || "",
-              });
-            } else {
-              // No profile exists, enable edit mode and prefill available data
-              form.reset({
-                name: user.displayName || "",
-                phone: "",
-                regNumber: regNumber,
-                gender: "Male",
-                part: "1",
-                programme: "",
-              });
-              setIsEditing(true);
-            }
+            form.reset({
+              name: user.displayName || "",
+              phone: "",
+              regNumber: regNumber,
+              gender: "Male",
+              part: "1",
+              programme: "",
+            });
+            setIsEditing(true);
           } else if (emailDomain === "gmail.com" && user.email) {
-            // For gmail.com users, first check if they exist in Firebase by email
-            const usersRef = collection(db, "students");
-            const q = query(usersRef, where("email", "==", user.email));
-            const querySnapshot = await getDocs(q);
-
-            if (!querySnapshot.empty) {
-              // User exists in database, populate form with their data
-              const userData = querySnapshot.docs[0].data();
-              form.reset({
-                name: userData.name || user.displayName || "",
-                phone: userData.phone || "",
-                regNumber: userData.regNumber || "",
-                gender: userData.gender,
-                part: userData.part,
-                programme: userData.programme || "",
-              });
-
-              setAuthDetails((prev) => ({
-                ...prev,
-                userName: userData.name || user.displayName || "",
-                regNumber: userData.regNumber || "",
-              }));            } else {
-              // User doesn't exist, show onboarding inline
-              setNeedsOnboarding(true);
-            }
+            setNeedsOnboarding(true);
           }
         }
       } catch (error) {
@@ -264,15 +246,20 @@ const StudentProfileForm: React.FC<{}> = () => {
 
   const onSubmit = async (data: FormValues) => {
     try {
-      const userDoc = doc(db, "students", data.regNumber);
-      await setDoc(
-        userDoc,
-        {
+      const res = await fetch("/api/profile", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
           ...data,
           email: authDetails.userEmail,
-        },
-        { merge: true }
-      );
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to update profile");
+      }
 
       // Update authDetails with the saved name
       setAuthDetails((prev) => ({
