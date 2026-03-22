@@ -1,36 +1,30 @@
-import { db } from "@/lib/firebase";
-import { 
-  collection, 
-  doc, 
-  getDocs, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  addDoc,
-  Timestamp
-} from "firebase/firestore";
 import { Payment, RoomAllocation } from "@/types/hostel";
-import { updatePaymentStatus, fetchStudentAllocations, getRoomDetailsFromAllocation } from "./hostel-data";
+
+/**
+ * Helper to get the base URL for API calls.
+ */
+const getBaseUrl = () => {
+  if (typeof window !== "undefined") return ""; // browser should use relative url
+  if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL;
+  return "http://localhost:3000";
+};
 
 /**
  * Submit a new payment by student
  */
 export const submitPayment = async (payment: Omit<Payment, 'id' | 'submittedAt' | 'status'>): Promise<string> => {
   try {
-    const paymentData = {
-      ...payment,
-      submittedAt: new Date().toISOString(),
-      status: 'Pending' as const
-    };
-
-    const paymentsCollection = collection(db, "payments");
-    const docRef = await addDoc(paymentsCollection, paymentData);
+    const res = await fetch(`${getBaseUrl()}/api/payments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payment),
+    });
     
-    return docRef.id;
+    if (!res.ok) {
+      throw new Error('Failed to submit payment');
+    }
+    const data = await res.json();
+    return data.id;
   } catch (error) {
     console.error("Error submitting payment:", error);
     throw error;
@@ -45,8 +39,15 @@ export const updateStudentPayment = async (
   updates: Partial<Pick<Payment, 'receiptNumber' | 'paymentMethod' | 'notes' | 'attachments'>>
 ): Promise<void> => {
   try {
-    const paymentDoc = doc(db, "payments", paymentId);
-    await updateDoc(paymentDoc, updates);
+    const res = await fetch(`${getBaseUrl()}/api/payments/${paymentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+
+    if (!res.ok) {
+      throw new Error('Failed to update payment');
+    }
   } catch (error) {
     console.error("Error updating payment:", error);
     throw error;
@@ -56,23 +57,13 @@ export const updateStudentPayment = async (
 /**
  * Fetch payments for a specific student
  */
-export const fetchStudentPayments = async (studentRegNumber: string): Promise<Payment[]> => {  try {
-    const paymentsCollection = collection(db, "payments");
-    const q = query(
-      paymentsCollection, 
-      where("studentRegNumber", "==", studentRegNumber)
-    );
-    const paymentsSnap = await getDocs(q);
-    
-    // Sort manually in JavaScript to avoid composite index requirement
-    const payments = paymentsSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Payment[];
-    
-    return payments.sort((a, b) => 
-      new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
-    );
+export const fetchStudentPayments = async (studentRegNumber: string): Promise<Payment[]> => {
+  try {
+    const res = await fetch(`${getBaseUrl()}/api/payments/student/${studentRegNumber}`);
+    if (!res.ok) {
+      throw new Error('Failed to fetch student payments');
+    }
+    return await res.json();
   } catch (error) {
     console.error("Error fetching student payments:", error);
     return [];
@@ -84,14 +75,11 @@ export const fetchStudentPayments = async (studentRegNumber: string): Promise<Pa
  */
 export const fetchAllPayments = async (): Promise<Payment[]> => {
   try {
-    const paymentsCollection = collection(db, "payments");
-    const q = query(paymentsCollection, orderBy("submittedAt", "desc"));
-    const paymentsSnap = await getDocs(q);
-    
-    return paymentsSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Payment[];
+    const res = await fetch(`${getBaseUrl()}/api/payments`);
+    if (!res.ok) {
+      throw new Error('Failed to fetch all payments');
+    }
+    return await res.json();
   } catch (error) {
     console.error("Error fetching all payments:", error);
     return [];
@@ -103,22 +91,11 @@ export const fetchAllPayments = async (): Promise<Payment[]> => {
  */
 export const fetchPendingPayments = async (): Promise<Payment[]> => {
   try {
-    const paymentsCollection = collection(db, "payments");
-    const q = query(
-      paymentsCollection, 
-      where("status", "==", "Pending")
-    );
-    const paymentsSnap = await getDocs(q);
-    
-    // Sort manually in JavaScript to avoid composite index requirement
-    const payments = paymentsSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Payment[];
-    
-    return payments.sort((a, b) => 
-      new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime()
-    );
+    const res = await fetch(`${getBaseUrl()}/api/payments/pending`);
+    if (!res.ok) {
+      throw new Error('Failed to fetch pending payments');
+    }
+    return await res.json();
   } catch (error) {
     console.error("Error fetching pending payments:", error);
     return [];
@@ -133,31 +110,14 @@ export const approvePayment = async (
   adminEmail: string
 ): Promise<void> => {
   try {
-    const paymentDoc = doc(db, "payments", paymentId);
-    const paymentSnap = await getDoc(paymentDoc);
-    
-    if (!paymentSnap.exists()) {
-      throw new Error("Payment not found");
+    const res = await fetch(`${getBaseUrl()}/api/payments/${paymentId}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminEmail }),
+    });
+    if (!res.ok) {
+      throw new Error('Failed to approve payment');
     }
-    
-    const payment = paymentSnap.data() as Payment;
-    
-    // Update payment status
-    await updateDoc(paymentDoc, {
-      status: 'Approved',
-      approvedBy: adminEmail,
-      approvedAt: new Date().toISOString()
-    });
-    
-    // Update room allocation payment status
-    await updatePaymentStatus(payment.allocationId, 'Paid');
-    
-    // Update allocation with payment reference
-    const allocationDoc = doc(db, "roomAllocations", payment.allocationId);
-    await updateDoc(allocationDoc, {
-      paymentId: paymentId
-    });
-    
   } catch (error) {
     console.error("Error approving payment:", error);
     throw error;
@@ -173,13 +133,14 @@ export const rejectPayment = async (
   rejectionReason: string
 ): Promise<void> => {
   try {
-    const paymentDoc = doc(db, "payments", paymentId);
-    await updateDoc(paymentDoc, {
-      status: 'Rejected',
-      approvedBy: adminEmail,
-      approvedAt: new Date().toISOString(),
-      rejectionReason
+    const res = await fetch(`${getBaseUrl()}/api/payments/${paymentId}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminEmail, rejectionReason }),
     });
+    if (!res.ok) {
+      throw new Error('Failed to reject payment');
+    }
   } catch (error) {
     console.error("Error rejecting payment:", error);
     throw error;
@@ -191,16 +152,12 @@ export const rejectPayment = async (
  */
 export const fetchPaymentById = async (paymentId: string): Promise<Payment | null> => {
   try {
-    const paymentDoc = doc(db, "payments", paymentId);
-    const paymentSnap = await getDoc(paymentDoc);
-    
-    if (paymentSnap.exists()) {
-      return {
-        id: paymentSnap.id,
-        ...paymentSnap.data()
-      } as Payment;
+    const res = await fetch(`${getBaseUrl()}/api/payments/${paymentId}`);
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error('Failed to fetch payment');
     }
-    return null;
+    return await res.json();
   } catch (error) {
     console.error("Error fetching payment:", error);
     return null;
@@ -215,27 +172,16 @@ export const addAdminPayment = async (
   adminEmail: string
 ): Promise<string> => {
   try {
-    const paymentData = {
-      ...payment,
-      submittedAt: new Date().toISOString(),
-      status: 'Approved' as const,
-      approvedBy: adminEmail,
-      approvedAt: new Date().toISOString()
-    };
-
-    const paymentsCollection = collection(db, "payments");
-    const docRef = await addDoc(paymentsCollection, paymentData);
-    
-    // Update room allocation payment status
-    await updatePaymentStatus(payment.allocationId, 'Paid');
-    
-    // Update allocation with payment reference
-    const allocationDoc = doc(db, "roomAllocations", payment.allocationId);
-    await updateDoc(allocationDoc, {
-      paymentId: docRef.id
+    const res = await fetch(`${getBaseUrl()}/api/payments/admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payment, adminEmail }),
     });
-    
-    return docRef.id;
+    if (!res.ok) {
+      throw new Error('Failed to add admin payment');
+    }
+    const data = await res.json();
+    return data.id;
   } catch (error) {
     console.error("Error adding admin payment:", error);
     throw error;
@@ -247,22 +193,12 @@ export const addAdminPayment = async (
  */
 export const fetchPaymentForAllocation = async (allocationId: string): Promise<Payment | null> => {
   try {
-    const paymentsCollection = collection(db, "payments");
-    const q = query(
-      paymentsCollection, 
-      where("allocationId", "==", allocationId),
-      where("status", "==", "Approved")
-    );
-    const paymentsSnap = await getDocs(q);
-    
-    if (!paymentsSnap.empty) {
-      const paymentDoc = paymentsSnap.docs[0];
-      return {
-        id: paymentDoc.id,
-        ...paymentDoc.data()
-      } as Payment;
+    const res = await fetch(`${getBaseUrl()}/api/payments/allocation/${allocationId}`);
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error('Failed to fetch payment for allocation');
     }
-    return null;
+    return await res.json();
   } catch (error) {
     console.error("Error fetching payment for allocation:", error);
     return null;
@@ -277,22 +213,14 @@ export const updatePaymentAllocationReference = async (
   newAllocationId: string
 ): Promise<void> => {
   try {
-    const paymentsCollection = collection(db, "payments");
-    const q = query(
-      paymentsCollection,
-      where("allocationId", "==", oldAllocationId)
-    );
-    
-    const paymentsSnap = await getDocs(q);
-    
-    // Update all payments that reference the old allocation ID
-    const updatePromises = paymentsSnap.docs.map(doc => 
-      updateDoc(doc.ref, { allocationId: newAllocationId })
-    );
-    
-    await Promise.all(updatePromises);
-    
-    console.log(`Updated ${paymentsSnap.docs.length} payment record(s) to reference new allocation ID`);
+    const res = await fetch(`${getBaseUrl()}/api/payments/allocation/${oldAllocationId}/reference`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newAllocationId }),
+    });
+    if (!res.ok) {
+      throw new Error('Failed to update payment allocation reference');
+    }
   } catch (error) {
     console.error("Error updating payment allocation references:", error);
     throw error;
@@ -301,72 +229,19 @@ export const updatePaymentAllocationReference = async (
 
 /**
  * Fix allocation payment references for a specific student (admin function)
- * Links existing approved payments to current allocations based on matching amount/price
  */
 export const fixStudentAllocationPayments = async (studentRegNumber: string): Promise<{
   fixed: number;
   message: string;
 }> => {
   try {
-    // Get student's payments and allocations
-    const [payments, allocations] = await Promise.all([
-      fetchStudentPayments(studentRegNumber),
-      fetchStudentAllocations(studentRegNumber)
-    ]);
-    
-    // Get unpaid allocations
-    const unpaidAllocations = allocations.filter((allocation: RoomAllocation) => allocation.paymentStatus !== 'Paid');
-    
-    // Get approved payments that might not be linked to current allocations
-    const approvedPayments = payments.filter(p => p.status === 'Approved');
-    
-    let fixedCount = 0;
-    const fixedAllocations = [];
-    
-    // For each unpaid allocation, try to find a matching approved payment
-    for (const allocation of unpaidAllocations) {
-      // Get room details to know the price
-      const roomDetails = await getRoomDetailsFromAllocation(allocation);
-      if (!roomDetails) continue;
-      
-      // Look for an approved payment with matching amount
-      const matchingPayment = approvedPayments.find(payment => 
-        payment.amount === roomDetails.price && 
-        payment.allocationId !== allocation.id
-      );
-      
-      if (matchingPayment) {
-        // Update the payment to reference the current allocation
-        const paymentDoc = doc(db, "payments", matchingPayment.id);
-        await updateDoc(paymentDoc, {
-          allocationId: allocation.id
-        });
-        
-        // Update allocation payment status
-        await updatePaymentStatus(allocation.id, 'Paid');
-        
-        // Update allocation with payment reference
-        const allocationDoc = doc(db, "roomAllocations", allocation.id);
-        await updateDoc(allocationDoc, {
-          paymentId: matchingPayment.id
-        });
-        
-        fixedCount++;
-        fixedAllocations.push({
-          studentRegNumber: studentRegNumber,
-          allocationId: allocation.id,
-          paymentId: matchingPayment.id,
-          amount: matchingPayment.amount
-        });
-      }
+    const res = await fetch(`${getBaseUrl()}/api/payments/fix-allocations/${studentRegNumber}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      throw new Error('Failed to fix student allocation payments');
     }
-    
-    return {
-      fixed: fixedCount,
-      message: fixedCount > 0 
-        ? `Successfully fixed ${fixedCount} allocation payment(s) for student ${studentRegNumber}`
-        : `No matching payments found to fix for student ${studentRegNumber}`
-    };
+    return await res.json();
   } catch (error) {
     console.error("Error fixing allocation payments:", error);
     throw error;
@@ -375,7 +250,6 @@ export const fixStudentAllocationPayments = async (studentRegNumber: string): Pr
 
 /**
  * Fix allocation payment references for ALL affected students (admin function)
- * This is a bulk operation that fixes payments for all students who have mismatched allocations
  */
 export const fixAllAllocationPayments = async (): Promise<{
   studentsProcessed: number;
@@ -387,86 +261,13 @@ export const fixAllAllocationPayments = async (): Promise<{
   }>;
 }> => {
   try {
-    console.log("Starting bulk fix for all affected students...");
-    
-    // Get all payments and allocations
-    const [allPayments, allAllocations] = await Promise.all([
-      fetchAllPayments(),
-      (async () => {
-        const allocationsCollection = collection(db, "roomAllocations");
-        const allocationsSnap = await getDocs(allocationsCollection);
-        return allocationsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as RoomAllocation[];
-      })()
-    ]);
-    
-    // Find students who have approved payments but unpaid allocations
-    const studentMap = new Map<string, {
-      payments: Payment[];
-      allocations: RoomAllocation[];
-    }>();
-    
-    // Group payments by student
-    allPayments.forEach(payment => {
-      const student = payment.studentRegNumber;
-      if (!studentMap.has(student)) {
-        studentMap.set(student, { payments: [], allocations: [] });
-      }
-      studentMap.get(student)!.payments.push(payment);
+    const res = await fetch(`${getBaseUrl()}/api/payments/fix-allocations`, {
+      method: 'POST',
     });
-    
-    // Group allocations by student
-    allAllocations.forEach(allocation => {
-      const student = allocation.studentRegNumber;
-      if (!studentMap.has(student)) {
-        studentMap.set(student, { payments: [], allocations: [] });
-      }
-      studentMap.get(student)!.allocations.push(allocation);
-    });
-    
-    // Find potentially affected students
-    const affectedStudents: string[] = [];
-    
-    studentMap.forEach((data, studentRegNumber) => {
-      const hasApprovedPayments = data.payments.some((p: Payment) => p.status === 'Approved');
-      const hasUnpaidAllocations = data.allocations.some((a: RoomAllocation) => a.paymentStatus !== 'Paid');
-      
-      if (hasApprovedPayments && hasUnpaidAllocations) {
-        affectedStudents.push(studentRegNumber);
-      }
-    });
-    
-    console.log(`Found ${affectedStudents.length} potentially affected students`);
-    
-    // Process each affected student
-    const results = [];
-    let totalFixed = 0;
-    
-    for (const studentRegNumber of affectedStudents) {
-      try {
-        const result = await fixStudentAllocationPayments(studentRegNumber);
-        results.push({
-          studentRegNumber,
-          fixed: result.fixed,
-          message: result.message
-        });
-        totalFixed += result.fixed;
-      } catch (error) {
-        console.error(`Failed to fix payments for student ${studentRegNumber}:`, error);
-        results.push({
-          studentRegNumber,
-          fixed: 0,
-          message: `Error: Failed to fix payments for student ${studentRegNumber}`
-        });
-      }
+    if (!res.ok) {
+      throw new Error('Failed to fix all allocation payments');
     }
-    
-    console.log(`Bulk fix completed. Processed ${affectedStudents.length} students, fixed ${totalFixed} allocations`);
-    
-    return {
-      studentsProcessed: affectedStudents.length,
-      totalFixed,
-      details: results
-    };
+    return await res.json();
   } catch (error) {
     console.error("Error in bulk fix operation:", error);
     throw error;
@@ -482,41 +283,15 @@ export const autoUpdatePaymentAllocation = async (
   newRoomPrice: number
 ): Promise<{ updated: boolean; message: string }> => {
   try {
-    // Get student's payments
-    const payments = await fetchStudentPayments(studentRegNumber);
-    
-    // Find approved payment with matching amount
-    const matchingPayment = payments.find(payment => 
-      payment.status === 'Approved' && 
-      payment.amount === newRoomPrice
-    );
-    
-    if (matchingPayment) {
-      // Update the payment to reference the new allocation
-      const paymentDoc = doc(db, "payments", matchingPayment.id);
-      await updateDoc(paymentDoc, {
-        allocationId: newAllocationId
-      });
-      
-      // Update the new allocation with payment reference
-      const allocationDoc = doc(db, "roomAllocations", newAllocationId);
-      await updateDoc(allocationDoc, {
-        paymentId: matchingPayment.id,
-        paymentStatus: 'Paid'
-      });
-      
-      console.log(`Auto-updated payment ${matchingPayment.id} for student ${studentRegNumber} to new allocation ${newAllocationId}`);
-      
-      return {
-        updated: true,
-        message: `Payment automatically linked to new room allocation`
-      };
+    const res = await fetch(`${getBaseUrl()}/api/payments/auto-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentRegNumber, newAllocationId, newRoomPrice }),
+    });
+    if (!res.ok) {
+      throw new Error('Failed to auto update payment allocation');
     }
-    
-    return {
-      updated: false,
-      message: 'No matching payment found to auto-update'
-    };
+    return await res.json();
   } catch (error) {
     console.error("Error auto-updating payment allocation:", error);
     return {
@@ -525,10 +300,15 @@ export const autoUpdatePaymentAllocation = async (
     };
   }
 };
+
 export const deletePayment = async (paymentId: string): Promise<void> => {
   try {
-    const paymentDoc = doc(db, "payments", paymentId);
-    await deleteDoc(paymentDoc);
+    const res = await fetch(`${getBaseUrl()}/api/payments/${paymentId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      throw new Error('Failed to delete payment');
+    }
   } catch (error) {
     console.error("Error deleting payment:", error);
     throw error;

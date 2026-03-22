@@ -8,10 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { getAuth } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { toast } from 'react-toastify';
+import { useSession } from 'next-auth/react';
 import { Plus, Edit, Eye, AlertTriangle, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { 
   fetchStudentPayments, 
@@ -48,7 +46,7 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
   });
   const [uploading, setUploading] = useState(false);
 
-  const auth = getAuth();
+  const { data: session } = useSession();
 
   // Function to determine registration number based on email domain
   const determineRegNumber = async (): Promise<string> => {
@@ -56,51 +54,41 @@ const StudentPaymentManagement: React.FC<StudentPaymentManagementProps> = ({ stu
       return studentRegNumber;
     }
 
-    const user = auth.currentUser;
-    if (!user || !user.email) {
+    const userEmail = session?.user?.email;
+    if (!userEmail) {
       return '';
     }
 
-    const emailDomain = user.email.split("@")[1] || "";
+    const emailDomain = userEmail.split("@")[1] || "";
 
     if (emailDomain === "hit.ac.zw") {
       // For hit.ac.zw domain users
-      return user.email.split("@")[0] || "";
+      return userEmail.split("@")[0] || "";
     } else if (emailDomain === "gmail.com") {
-      // For gmail.com users, find them by email first
       try {
-        const usersRef = collection(db, "students");
-        const q = query(usersRef, where("email", "==", user.email));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          // User exists in database
-          const userData = querySnapshot.docs[0].data();
-          return userData.regNumber || "";
-        } else {
-          // User doesn't exist in database
-          console.log("User not found in database");
-          return "";
-        }
+        const response = await fetch(`/api/students/by-email?email=${encodeURIComponent(userEmail)}`);
+        const data = await response.json();
+        return data.regNumber || "";
       } catch (error) {
         console.error("Error finding user by email:", error);
         return "";
       }
     } else {
-      // Unsupported email domain
-      console.log("Unsupported email domain");
-      return "";
+       console.log("Unsupported email domain");
+       return "";
     }
   };
 
   useEffect(() => {
     const initializeRegNumber = async () => {
-      const determinedRegNumber = await determineRegNumber();
-      setRegNumber(determinedRegNumber);
+      if (session?.user?.email || studentRegNumber) {
+        const determinedRegNumber = await determineRegNumber();
+        setRegNumber(determinedRegNumber);
+      }
     };
 
     initializeRegNumber();
-  }, [studentRegNumber, auth.currentUser]);
+  }, [studentRegNumber, session]);
 
   useEffect(() => {
     if (regNumber) {

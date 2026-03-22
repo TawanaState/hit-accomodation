@@ -3,8 +3,8 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
-import { setDoc, doc, getFirestore } from "firebase/firestore";
 import { toast } from "react-toastify";
+import { useSession } from "next-auth/react";
 import {
   Select,
   SelectContent,
@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/select";
 import { fetchStudentAllocations } from "@/data/hostel-data";
 import { addAdminPayment } from "@/data/payment-data";
-import { getAuth } from "firebase/auth";
 import { Payment } from "@/types/hostel";
 
 interface PaymentStatusModalProps {
@@ -46,7 +45,7 @@ const PaymentStatusModal = ({ isOpen, onClose, student, onUpdate }: PaymentStatu
   });
   const [uploading, setUploading] = useState(false);
 
-  const auth = getAuth();
+  const { data: session } = useSession();
 
   // Update state when the modal opens with new student data
   useEffect(() => {
@@ -105,11 +104,16 @@ const PaymentStatusModal = ({ isOpen, onClose, student, onUpdate }: PaymentStatu
       return;
     }
   
-    const db = getFirestore();
-    const studentRef = doc(db, "applications", student.regNumber);
-  
     try {
-      await setDoc(studentRef, { paymentStatus, reference }, { merge: true });
+      const response = await fetch(`/api/applications/${student.regNumber}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentStatus, reference }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update payment status");
+      }
   
       toast.success("Payment status updated successfully!");
   
@@ -139,7 +143,7 @@ const PaymentStatusModal = ({ isOpen, onClose, student, onUpdate }: PaymentStatu
         return;
       }
 
-      const adminEmail = auth.currentUser?.email || '';
+      const adminEmail = session?.user?.email || '';
       
       await addAdminPayment({
         studentRegNumber: student.regNumber,
@@ -152,10 +156,11 @@ const PaymentStatusModal = ({ isOpen, onClose, student, onUpdate }: PaymentStatu
       }, adminEmail);
 
       // Update student payment status to Paid
-      await setDoc(doc(getFirestore(), "applications", student.regNumber), { 
-        paymentStatus: "Paid", 
-        reference: paymentForm.receiptNumber 
-      }, { merge: true });
+      await fetch(`/api/applications/${student.regNumber}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentStatus: "Paid", reference: paymentForm.receiptNumber }),
+      });
 
       toast.success('Payment added and approved successfully!');
       onUpdate({ ...student, paymentStatus: "Paid", reference: paymentForm.receiptNumber });

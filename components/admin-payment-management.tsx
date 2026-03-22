@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { getAuth } from 'firebase/auth';
+import { useSession } from 'next-auth/react';
 import { toast } from 'react-toastify';
 import { 
   CheckCircle, 
@@ -37,8 +37,6 @@ import { fetchStudentAllocations, getRoomDetailsFromAllocation, fetchAllocationB
 import { Payment, RoomAllocation, Hostel } from '@/types/hostel';
 import BankingDetails from '@/components/banking-details';
 import { generateExcelFile } from '@/utils/generate_xl';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 
 const AdminPaymentManagement: React.FC = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -73,8 +71,8 @@ const AdminPaymentManagement: React.FC = () => {
   const [roomInfo, setRoomInfo] = useState<{hostelName: string, roomNumber: string, floorName: string} | null>(null);
   const [allocationDetails, setAllocationDetails] = useState<Map<string, { roomNumber: string; hostelName: string; price: number }>>(new Map());
 
-  const auth = getAuth();
-  const adminEmail = auth.currentUser?.email || '';
+  const { data: session } = useSession();
+  const adminEmail = session?.user?.email || '';
 
   useEffect(() => {
     loadData();
@@ -84,16 +82,14 @@ const AdminPaymentManagement: React.FC = () => {
     try {
       setLoading(true);
       // Fetch all data in parallel
-      const [allPayments, pendingPayments, hostels, allocations] = await Promise.all([
+      const [allPayments, pendingPayments, hostels, allocationsRes] = await Promise.all([
         fetchAllPayments(),
         fetchPendingPayments(),
         fetchHostels(),
-        (async () => {
-          const allocationsCollection = collection(db, "roomAllocations");
-          const allocationsSnap = await getDocs(allocationsCollection);
-          return allocationsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as RoomAllocation[];
-        })()
+        fetch('/api/allocations-all').then(r => r.json()).catch(() => [])
       ]);
+
+      const allocations = Array.isArray(allocationsRes) ? allocationsRes : [];
 
       // Create maps for efficient lookups
       const hostelMap = new Map(hostels.map(h => [h.id, h]));
