@@ -8,8 +8,6 @@ import { fetchAllStudentsFromStudentsCollection as fetchAllStudents } from "@/da
 import { fetchHostels } from "@/data/hostel-data";
 import { fetchAllPayments } from "@/data/payment-data";
 import { Hostel, Room, Payment } from "@/types/hostel";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
@@ -98,10 +96,14 @@ const ReportsPage = () => {
       setStudents(studentsData);
       setPayments(paymentsData);
 
-      // Fetch all allocations from Firestore
-      const allocationsSnap = await getDocs(collection(db, "roomAllocations"));
-      const allocationsDataState = allocationsSnap.docs.map(doc => Object.assign({}, doc.data(), { id: doc.id })) as RoomAllocation[];
-      setAllocations(allocationsDataState);
+      // Fetch all allocations from MongoDB
+      const res = await fetch("/api/allocations-all");
+      if (res.ok) {
+        const allocationsDataState = await res.json() as RoomAllocation[];
+        setAllocations(allocationsDataState);
+      } else {
+        console.error("Failed to fetch allocations");
+      }
       setLoading(false);
     };
     fetchData();
@@ -183,8 +185,11 @@ const ReportsPage = () => {
       fetchAllStudents(),
       fetchAllPayments(),
     ]);
-    const allocationsSnapCheckin = await getDocs(collection(db, "roomAllocations"));
-    const allocationsDataCheckin = allocationsSnapCheckin.docs.map(doc => Object.assign({}, doc.data(), { id: doc.id })) as RoomAllocation[];
+    const res = await fetch("/api/allocations-all");
+    let allocationsDataCheckin: RoomAllocation[] = [];
+    if (res.ok) {
+      allocationsDataCheckin = await res.json();
+    }
     // Join and filter data
     const rows = allocationsDataCheckin
       .filter(a => selectedHostel === "All" || a.hostelId === selectedHostel)
@@ -252,8 +257,11 @@ const ReportsPage = () => {
       fetchAllStudents(),
       fetchAllPayments(),
     ]);
-    const allocationsSnapAccepted = await getDocs(collection(db, "roomAllocations"));
-    const allocationsDataAccepted = allocationsSnapAccepted.docs.map(doc => Object.assign({}, doc.data(), { id: doc.id })) as RoomAllocation[];
+    const res = await fetch("/api/allocations-all");
+    let allocationsDataAccepted: RoomAllocation[] = [];
+    if (res.ok) {
+      allocationsDataAccepted = await res.json();
+    }
     // Join and filter data
     const rows = allocationsDataAccepted
       .filter(a => selectedHostel === "All" || a.hostelId === selectedHostel)
@@ -317,8 +325,11 @@ const ReportsPage = () => {
       fetchHostels(),
       fetchAllPayments(),
     ]);
-    const allocationsSnapPayments = await getDocs(collection(db, "roomAllocations"));
-    const allocationsDataPayments = allocationsSnapPayments.docs.map(doc => Object.assign({}, doc.data(), { id: doc.id })) as RoomAllocation[];
+    const res = await fetch("/api/allocations-all");
+    let allocationsDataPayments: RoomAllocation[] = [];
+    if (res.ok) {
+      allocationsDataPayments = await res.json();
+    }
     // Filter payments by selected hostel
     const filteredPayments = paymentsData.filter(p => {
       if (selectedHostel === "All") return true;
@@ -429,8 +440,11 @@ const ReportsPage = () => {
       filteredHostels = hostelsData.filter(h => h.id === selectedHostel);
     }
     // Get all students who are allocated to the selected hostel(s)
-    const allocationsSnapCanteen = await getDocs(collection(db, "roomAllocations"));
-    const allocationsDataCanteen = allocationsSnapCanteen.docs.map(doc => Object.assign({}, doc.data(), { id: doc.id })) as RoomAllocation[];
+    const res = await fetch("/api/allocations-all");
+    let allocationsDataCanteen: RoomAllocation[] = [];
+    if (res.ok) {
+      allocationsDataCanteen = await res.json();
+    }
     const allowedHostelIds = filteredHostels.map(h => h.id);
     const filteredAllocations = allocationsDataCanteen.filter(a => allowedHostelIds.includes(a.hostelId));
     // Map reg numbers to allocations

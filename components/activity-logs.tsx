@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Input } from "./ui/input";
-import { collection, getDocs, query, orderBy, getFirestore, startAfter, limit, QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 
@@ -26,39 +25,52 @@ const Logs = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [dateRange, setDateRange] = useState<{ startDate: Date | null; endDate: Date | null }>({ startDate: null, endDate: null });
-  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [lastDoc, setLastDoc] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
   
-  const db = getFirestore();
   const observerRef = useRef(null);
 
   const fetchLogs = useCallback(async (paginate = false) => {
-    if (!hasMore && paginate) return;
+    if ((!hasMore && paginate) || isFetching) return;
+
+    setIsFetching(true);
     setLoading(true);
     try {
-      let logsQuery = query(
-        collection(db, "ActivityLogs"),
-        orderBy("timestamp", "desc"),
-        lastDoc ? startAfter(lastDoc) : limit(PAGE_SIZE)
-      );
-      
-      const querySnapshot = await getDocs(logsQuery);
-      const logsData = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const cursor = paginate ? lastDoc : null;
+      const url = new URL("/api/activity-logs", window.location.origin);
+      url.searchParams.append("limit", PAGE_SIZE.toString());
+      if (cursor) {
+        url.searchParams.append("cursor", cursor);
+      }
+
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        throw new Error("Failed to fetch logs");
+      }
+
+      const result = await response.json();
+      const logsData = result.data;
       
       if (paginate) {
-        setLogs((prevLogs) => [...prevLogs, ...logsData]);
+        setLogs((prevLogs) => {
+          const existingIds = new Set(prevLogs.map(log => log.id));
+          const newLogs = logsData.filter((log: any) => !existingIds.has(log.id));
+          return [...prevLogs, ...newLogs];
+        });
       } else {
         setLogs(logsData);
       }
       
-      setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1] || null);
-      setHasMore(querySnapshot.docs.length === PAGE_SIZE);
+      setLastDoc(result.nextCursor);
+      setHasMore(!!result.nextCursor);
     } catch (error) {
       console.error("Error fetching logs:", error);
     } finally {
       setLoading(false);
+      setIsFetching(false);
     }
-  }, [db, lastDoc, hasMore]);
+  }, [lastDoc, hasMore, isFetching]);
 
   useEffect(() => {
     fetchLogs();

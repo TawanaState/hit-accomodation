@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, query, orderBy, startAfter, limit, doc, updateDoc, setDoc, QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import { toast } from "react-toastify";
 import { Search } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
@@ -22,14 +20,14 @@ type UserData = {
 const AdminAccountManagement = () => {
   const { role } = useAuth();
   const [users, setUsers] = useState<UserData[]>([]);
-  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [lastDoc, setLastDoc] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const observerRef = useRef(null);
   
   // Use refs to avoid stale closures in callbacks
-  const lastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const lastDocRef = useRef<string | null>(null);
   const hasMoreRef = useRef(true);
   const loadingRef = useRef(false);
   
@@ -50,40 +48,34 @@ const AdminAccountManagement = () => {
     
     setLoading(true);
     try {
-      let usersQuery;
-      if (lastDocRef.current && paginate) {
-        usersQuery = query(
-          collection(db, "users"),
-          orderBy("createdAt", "desc"),
-          startAfter(lastDocRef.current),
-          limit(PAGE_SIZE)
-        );
-      } else {
-        usersQuery = query(
-          collection(db, "users"),
-          orderBy("createdAt", "desc"),
-          limit(PAGE_SIZE)
-        );
+      const cursor = paginate ? lastDocRef.current : null;
+      const url = new URL("/api/users", window.location.origin);
+      url.searchParams.append("limit", PAGE_SIZE.toString());
+      if (cursor) {
+        url.searchParams.append("cursor", cursor);
       }
 
-      const snapshot = await getDocs(usersQuery);
-      const userList = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as UserData));
-        // Check for duplicates before adding
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        throw new Error("Failed to fetch users");
+      }
+
+      const result = await response.json();
+      const userList = result.data as UserData[];
+
+      // Check for duplicates before adding
       setUsers((prev) => {
         if (paginate) {
           const existingIds = new Set(prev.map(user => user.id));
           const newUsers = userList.filter(user => !existingIds.has(user.id));
-          console.log(`Adding ${newUsers.length} new users, ${userList.length - newUsers.length} duplicates filtered`);
           return [...prev, ...newUsers];
         } else {
-          console.log(`Setting ${userList.length} users (initial load)`);
           return userList;
         }
       });
       
-      const newLastDoc = snapshot.docs[snapshot.docs.length - 1] || null;
-      setLastDoc(newLastDoc);
-      setHasMore(snapshot.docs.length === PAGE_SIZE);
+      setLastDoc(result.nextCursor);
+      setHasMore(!!result.nextCursor);
     } catch (error) {
       console.error("Error fetching users:", error);
       toast.error("Failed to fetch users.");
@@ -104,8 +96,18 @@ const AdminAccountManagement = () => {
 
   const handleRoleChange = async (userId: string, newStatus: "user" | "admin") => {
     try {
-      const userRef = doc(db, "users", userId);
-      await updateDoc(userRef, { role: newStatus });
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ role: newStatus }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update role");
+      }
+
       setUsers((prev) => prev.map((user) => (user.id === userId ? { ...user, role: newStatus } : user)));
       toast.success("User role updated successfully!");
     } catch (error) {

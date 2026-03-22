@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore"
 import { UserIcon as Male, UserIcon as Female, CheckCircle, SettingsIcon, CalendarIcon } from 'lucide-react'
 import { toast } from "react-toastify"
 
@@ -20,31 +19,35 @@ const Settings = () => {
   const [loading, setLoading] = useState<boolean>(true)
   const [saving, setSaving] = useState<boolean>(false)
 
-  const db = getFirestore()
-  const settingsDocRef = doc(db, "Settings", "ApplicationLimits")
-
   useEffect(() => {
     const fetchLimits = async () => {
       try {
-        const docSnapshot = await getDoc(settingsDocRef)
-        if (docSnapshot.exists()) {
-          const data = docSnapshot.data()
-          setBoyLimit(data.boyLimit || 0)
-          setGirlLimit(data.girlLimit || 0)
-          setAutoAcceptBoysLimit(data.autoAcceptBoysLimit || 0)
-          setAutoAcceptGirlsLimit(data.autoAcceptGirlsLimit || 0)
-          setStartDateTime(data.startDateTime || "")
-          setEndDateTime(data.endDateTime || "")
+        const response = await fetch("/api/settings/application-limits");
+        if (response.ok) {
+          const data = await response.json();
+          setBoyLimit(data.boyLimit || 0);
+          setGirlLimit(data.girlLimit || 0);
+          setAutoAcceptBoysLimit(data.autoAcceptBoysLimit || 0);
+          setAutoAcceptGirlsLimit(data.autoAcceptGirlsLimit || 0);
+
+          if (data.startDateTime) {
+            setStartDateTime(new Date(data.startDateTime).toISOString().slice(0, 16));
+          }
+          if (data.endDateTime) {
+            setEndDateTime(new Date(data.endDateTime).toISOString().slice(0, 16));
+          }
+        } else {
+          toast.error("Failed to load settings.");
         }
       } catch (error) {
-        console.error("Error fetching settings:", error)
+        console.error("Error fetching settings:", error);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchLimits()
-  }, [])
+    fetchLimits();
+  }, []);
 
   const handleSave = async () => {
     // Validation logic
@@ -58,21 +61,32 @@ const Settings = () => {
       return
     }
 
-    if (new Date(startDateTime) >= new Date(endDateTime)) {
+    if (startDateTime && endDateTime && new Date(startDateTime) >= new Date(endDateTime)) {
       toast.error("Start Date/Time must be earlier than End Date/Time.")
       return
     }
 
     setSaving(true)
     try {
-      await setDoc(settingsDocRef, {
-        boyLimit,
-        girlLimit,
-        autoAcceptBoysLimit,
-        autoAcceptGirlsLimit,
-        startDateTime,
-        endDateTime,
-      })
+      const response = await fetch("/api/settings/application-limits", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          boyLimit,
+          girlLimit,
+          autoAcceptBoysLimit,
+          autoAcceptGirlsLimit,
+          startDateTime: startDateTime ? new Date(startDateTime).toISOString() : null,
+          endDateTime: endDateTime ? new Date(endDateTime).toISOString() : null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save settings");
+      }
+
       toast.success("Settings saved successfully!")
     } catch (error) {
       console.error("Error saving settings:", error)
