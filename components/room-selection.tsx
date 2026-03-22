@@ -100,31 +100,8 @@ const RoomSelection: React.FC<RoomSelectionProps> = ({ onRoomSelected, studentPr
 
     try {
       setIsSelecting(true);
-      const auth = getAuth();
-      const user = auth.currentUser;
-      if (!user) return;
 
-      const emailDomain = user.email?.split("@")[1] || "";
-      let regNumber = "";
-
-      if (emailDomain === "hit.ac.zw") {
-        regNumber = user.email?.split("@")[0] || "";
-      } else if (emailDomain === "gmail.com" && user.email) {
-        const usersRef = collection(db, "students");
-        const q = query(usersRef, where("email", "==", user.email));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          const userData = querySnapshot.docs[0].data();
-          regNumber = userData.regNumber || "";
-        } else {
-          toast.error("Profile not found. Please complete your profile first.");
-          return;
-        }
-      } else {
-        toast.error("Unsupported email domain.");
-        return;
-      }
+      const regNumber = studentProfile.regNumber;
 
       if (!regNumber) {
         toast.error("Registration number not found. Please complete your profile first.");

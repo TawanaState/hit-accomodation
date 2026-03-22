@@ -8,6 +8,47 @@ import { Allocation } from "@/models/Allocation";
 import { Session } from "@/models/Session";
 import mongoose from "mongoose";
 
+export async function GET(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const studentRegNumber = searchParams.get("studentRegNumber");
+
+    await dbConnect();
+
+    // Optionally filter by session, or return all allocations for this student
+    const query: any = {};
+    if (studentRegNumber) {
+      query.studentRegNumber = studentRegNumber;
+    }
+
+    const allocations = await Allocation.find(query)
+      .sort({ allocatedAt: -1 })
+      .lean();
+
+    // Map _id to id for UI
+    const mappedAllocations = allocations.map(allocation => ({
+      ...allocation,
+      id: allocation._id.toString(),
+      roomId: allocation.room.toString(),
+      hostelId: allocation.hostel.toString(),
+      sessionId: allocation.session.toString(),
+    }));
+
+    return NextResponse.json(mappedAllocations);
+  } catch (error) {
+    console.error("Error fetching allocations:", error);
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);

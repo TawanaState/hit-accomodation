@@ -7,29 +7,28 @@ import { db } from '@/lib/firebase';
 import { fetchStudentAllocations } from '@/data/hostel-data';
 import { toast } from 'react-toastify';
 
+import { useSession } from "next-auth/react";
+
 export const useStudentAllocation = (hostels: any[]) => {
+  const { data: session } = useSession();
   const [existingAllocation, setExistingAllocation] = useState<any>(null);
   const [allocationRoomDetails, setAllocationRoomDetails] = useState<any>(null);
   const [allocationChecked, setAllocationChecked] = useState(false);
 
   const checkExistingAllocation = useCallback(async () => {
-    const auth = getAuth();
-    const user = auth.currentUser;
-    if (!user) return;
+    if (!session?.user?.email) return;
 
-    const emailDomain = user.email?.split("@")[1] || "";
+    const email = session.user.email;
+    const emailDomain = email.split("@")[1] || "";
     let regNumber = "";
 
     try {
       if (emailDomain === "hit.ac.zw") {
-        regNumber = user.email?.split("@")[0] || "";
-      } else if (emailDomain === "gmail.com" && user.email) {
-        const usersRef = collection(db, "students");
-        const q = query(usersRef, where("email", "==", user.email));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          const userData = querySnapshot.docs[0].data();
+        regNumber = email.split("@")[0] || "";
+      } else if (emailDomain === "gmail.com") {
+        const res = await fetch(`/api/students/by-email?email=${encodeURIComponent(email)}`);
+        if (res.ok) {
+          const userData = await res.json();
           regNumber = userData.regNumber || "";
         } else {
           console.log("User not found in database");
@@ -68,14 +67,14 @@ export const useStudentAllocation = (hostels: any[]) => {
     } catch (error) {
       console.error("Error checking existing allocation:", error);
     }
-  }, [hostels]);
+  }, [hostels, session]);
 
   useEffect(() => {
-    if (hostels.length > 0 && !allocationChecked) {
+    if (hostels.length > 0 && !allocationChecked && session?.user?.email) {
       setAllocationChecked(true);
       checkExistingAllocation();
     }
-  }, [hostels, allocationChecked, checkExistingAllocation]);
+  }, [hostels, allocationChecked, checkExistingAllocation, session]);
 
   return {
     existingAllocation,

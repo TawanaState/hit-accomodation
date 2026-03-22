@@ -371,14 +371,19 @@ export const fetchStudentProfile = async (studentRegNumber: string): Promise<{ge
  */
 export const fetchStudentAllocations = async (studentRegNumber: string): Promise<RoomAllocation[]> => {
   try {
-    const allocationsCollection = collection(db, "roomAllocations");
-    const q = query(allocationsCollection, where("studentRegNumber", "==", studentRegNumber));
-    const allocationsSnap = await getDocs(q);
-    
-    return allocationsSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as RoomAllocation[];
+    const res = await fetch(`/api/allocations?studentRegNumber=${studentRegNumber}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch allocations: ${res.statusText}`);
+    }
+
+    const allocationsList: RoomAllocation[] = await res.json();
+    return allocationsList;
   } catch (error) {
     console.error("Error fetching student allocations:", error);
     return [];
@@ -902,282 +907,30 @@ export const changeRoomAllocation = async (
   isAdminAction: boolean = false
 ): Promise<void> => {
   try {
-    // STRICT ID VALIDATION: Ensure all IDs are provided and valid
-    if (!studentRegNumber || typeof studentRegNumber !== 'string') {
-      throw new Error('Invalid student registration number provided');
-    }
-    if (!newRoomId || typeof newRoomId !== 'string') {
-      throw new Error('Invalid room ID provided');
-    }
-    if (!newHostelId || typeof newHostelId !== 'string') {
-      throw new Error('Invalid hostel ID provided');
-    }
-
-    console.log(`[ROOM CHANGE] Starting room change for student: ${studentRegNumber}, New Room: ${newRoomId}, New Hostel: ${newHostelId}`);
-    
-    // First, clean up any duplicate allocations
-    await cleanupDuplicateAllocations(studentRegNumber);
-
-    // Get current allocation
-    const currentAllocations = await fetchStudentAllocations(studentRegNumber);
-    if (currentAllocations.length === 0) {
+    const allocations = await fetchStudentAllocations(studentRegNumber);
+    if (allocations.length === 0) {
       throw new Error("No existing allocation found for this student");
     }
 
-    const currentAllocation = currentAllocations[0];
-    
-    // For students, ensure they can only change within the same hostel
-    if (!isAdminAction && currentAllocation.hostelId !== newHostelId) {
-      throw new Error("Students can only change rooms within the same hostel");
-    }
+    const currentAllocationId = allocations[0].id;
 
-    // STRICT ID VALIDATION: Verify new hostel exists
-    const newHostel = await fetchHostelById(newHostelId);
-    if (!newHostel) {
-      throw new Error(`Target hostel with ID ${newHostelId} not found`);
-    }
-
-    // STRICT ID VALIDATION: Verify new room exists in the target hostel
-    let newRoom: Room | null = null;
-    for (const floor of newHostel.floors) {
-      const room = floor.rooms.find(r => r.id === newRoomId);
-      if (room) {
-        newRoom = room;
-        break;
-      }
-    }
-
-    if (!newRoom) {
-      throw new Error(`Target room with ID ${newRoomId} not found in hostel ${newHostel.name}`);
-    }
-
-    if (!newRoom.isAvailable || newRoom.occupants.length >= newRoom.capacity) {
-      throw new Error("Target room is not available");
-    }    // Check gender compatibility
-    if (newRoom.gender !== 'Mixed' && newRoom.gender !== studentGender) {
-      throw new Error("Room gender does not match student gender");
-    }
-
-    // Prevent moving to the same room
-    if (currentAllocation.roomId === newRoomId) {
-      throw new Error("Cannot move to the same room");
-    }
-
-    // STRICT ID VALIDATION: Verify current hostel exists
-    const currentHostel = await fetchHostelById(currentAllocation.hostelId);
-    if (!currentHostel) {
-      throw new Error(`Current hostel with ID ${currentAllocation.hostelId} not found`);
-    }
-    
-    // Check price compatibility - only allow room changes when prices are the same
-    if (currentHostel.pricePerSemester !== newHostel.pricePerSemester) {
-      throw new Error(`Cannot change rooms with different prices. Current room: $${currentHostel.pricePerSemester}/semester, New room: $${newHostel.pricePerSemester}/semester`);
-    }
-
-    console.log(`[ROOM CHANGE] Validation passed. Moving from ${currentHostel.name} (${currentAllocation.hostelId}) to ${newHostel.name} (${newHostelId})`);
-
-    logHostelOperation('CHANGE', {
-      studentRegNumber,
-      fromHostelId: currentAllocation.hostelId,
-      fromHostelName: currentHostel.name,
-      fromRoomId: currentAllocation.roomId,
-      toHostelId: newHostelId,
-      toHostelName: newHostel.name,
-      toRoomId: newRoomId,
-      isAdminAction,
-      operation: 'room_change_validation_passed'
+    const res = await fetch(`/api/allocations/${currentAllocationId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        newRoomId,
+        newHostelId,
+        studentGender,
+        isAdminAction
+      }),
     });
 
-    // Check if this is a same-hostel move
-    const isSameHostelMove = currentAllocation.hostelId === newHostelId;
-
-    if (isSameHostelMove) {
-      // For same-hostel moves, update the allocation record and room occupancy atomically
-      try {
-        // Step 1: Update room occupancy in the hostel
-        const updatedHostel = { ...newHostel };
-        let oldRoomUpdated = false;
-        let newRoomUpdated = false;
-        
-        updatedHostel.floors.forEach(floor => {
-          floor.rooms.forEach(room => {
-            // Remove from old room
-            if (room.id === currentAllocation.roomId) {
-              room.occupants = room.occupants.filter(reg => reg !== studentRegNumber);
-              room.isAvailable = room.occupants.length < room.capacity;
-              oldRoomUpdated = true;
-            }
-            // Add to new room
-            if (room.id === newRoomId) {
-              room.occupants.push(studentRegNumber);
-              room.isAvailable = room.occupants.length < room.capacity;
-              newRoomUpdated = true;
-            }
-          });
-        });
-
-        if (!oldRoomUpdated || !newRoomUpdated) {
-          throw new Error("Failed to update room occupancy");
-        }
-
-        // Update total occupancy
-        const totalOccupancy = updatedHostel.floors.reduce((total, floor) => 
-          total + floor.rooms.reduce((floorTotal, room) => floorTotal + room.occupants.length, 0), 0
-        );
-        updatedHostel.currentOccupancy = totalOccupancy;
-
-        await updateHostel(newHostelId, updatedHostel);
-
-        // Step 2: Update the existing allocation record (keep the same allocation ID)
-        const allocationsCollection = collection(db, "roomAllocations");
-        const allocationDoc = doc(allocationsCollection, currentAllocation.id);
-        
-        const updatedAllocationData = {
-          roomId: newRoomId,
-          allocatedAt: new Date().toISOString() // Update allocation time
-        };
-
-        await updateDoc(allocationDoc, updatedAllocationData);
-        
-        // Step 3: Auto-update payment allocation if there's a matching payment (for same price rooms)
-        try {
-          const { autoUpdatePaymentAllocation } = await import('./payment-data');
-          const updateResult = await autoUpdatePaymentAllocation(
-            studentRegNumber, 
-            currentAllocation.id, // Using existing allocation ID for same-hostel moves
-            newHostel.pricePerSemester
-          );
-          
-          if (updateResult.updated) {
-            console.log(`Auto-updated payment for student ${studentRegNumber}: ${updateResult.message}`);
-          }
-        } catch (error) {
-          console.warn(`Failed to auto-update payment for student ${studentRegNumber}:`, error);
-          // Don't throw error here - allocation should still succeed even if payment update fails
-        }
-
-      } catch (error) {
-        console.error("Error during same-hostel room change:", error);
-        throw error;
-      }
-    } else {
-      // For cross-hostel moves, use the original logic
-      // Step 1: First remove from old room and delete old allocation
-      await removeOccupantFromRoom(
-        currentAllocation.hostelId,
-        currentAllocation.roomId,
-        studentRegNumber
-      );
-
-      try {
-        // Step 2: Add student to new room
-        const updatedNewHostel = { ...newHostel };
-        let roomUpdated = false;
-        
-        updatedNewHostel.floors.forEach(floor => {
-          floor.rooms.forEach(room => {
-            if (room.id === newRoomId) {
-              room.occupants.push(studentRegNumber);
-              room.isAvailable = room.occupants.length < room.capacity;
-              roomUpdated = true;
-            }
-          });        });
-
-        if (!roomUpdated) {
-          throw new Error("Failed to update new room");
-        }
-
-        // Update total occupancy
-        const totalOccupancy = updatedNewHostel.floors.reduce((total, floor) => 
-          total + floor.rooms.reduce((floorTotal, room) => floorTotal + room.occupants.length, 0), 0
-        );
-        updatedNewHostel.currentOccupancy = totalOccupancy;
-
-        await updateHostel(newHostelId, updatedNewHostel);
-
-        // Step 3: Create new allocation record (exclude undefined fields)
-        const newAllocation: Omit<RoomAllocation, 'id'> = {
-          studentRegNumber: currentAllocation.studentRegNumber,
-          roomId: newRoomId,
-          hostelId: newHostelId,
-          allocatedAt: new Date().toISOString(),
-          paymentStatus: currentAllocation.paymentStatus,
-          semester: currentAllocation.semester,
-          academicYear: currentAllocation.academicYear,
-          paymentDeadline: currentAllocation.paymentDeadline,
-          ...(currentAllocation.paymentId && { paymentId: currentAllocation.paymentId })
-        };        const allocationsCollection = collection(db, "roomAllocations");
-        const docRef = await addDoc(allocationsCollection, newAllocation);
-
-        // Step 4: Update payment records to reference the new allocation ID
-        try {
-          const { updatePaymentAllocationReference } = await import('./payment-data');
-          await updatePaymentAllocationReference(currentAllocation.id, docRef.id);
-        } catch (paymentError) {
-          console.error("Failed to update payment references:", paymentError);
-          // Continue execution as this is not critical for room allocation
-        }
-        
-        // Step 5: Auto-update payment allocation if there's a matching payment (for same price rooms)
-        try {
-          const { autoUpdatePaymentAllocation } = await import('./payment-data');
-          const updateResult = await autoUpdatePaymentAllocation(
-            studentRegNumber, 
-            docRef.id, 
-            newHostel.pricePerSemester
-          );
-          
-          if (updateResult.updated) {
-            console.log(`Auto-updated payment for student ${studentRegNumber}: ${updateResult.message}`);
-          }
-        } catch (error) {
-          console.warn(`Failed to auto-update payment for student ${studentRegNumber}:`, error);
-          // Don't throw error here - allocation should still succeed even if payment update fails
-        }
-
-      } catch (error) {
-      // If adding to new room fails, try to restore the old allocation
-      console.error("Failed to move to new room, attempting to restore old allocation:", error);
-      
-      try {
-        // Re-add to old room
-        const oldHostel = await fetchHostelById(currentAllocation.hostelId);
-        if (oldHostel) {
-          const updatedOldHostel = { ...oldHostel };
-          updatedOldHostel.floors.forEach(floor => {
-            floor.rooms.forEach(room => {
-              if (room.id === currentAllocation.roomId) {
-                room.occupants.push(studentRegNumber);
-                room.isAvailable = room.occupants.length < room.capacity;
-              }
-            });
-          });
-          
-          await updateHostel(currentAllocation.hostelId, updatedOldHostel);
-          
-          // Recreate old allocation
-          const restoredAllocation: Omit<RoomAllocation, 'id'> = {
-            studentRegNumber: currentAllocation.studentRegNumber,
-            roomId: currentAllocation.roomId,
-            hostelId: currentAllocation.hostelId,
-            allocatedAt: currentAllocation.allocatedAt,
-            paymentStatus: currentAllocation.paymentStatus,
-            semester: currentAllocation.semester,
-            academicYear: currentAllocation.academicYear,
-            paymentDeadline: currentAllocation.paymentDeadline,
-            ...(currentAllocation.paymentId && { paymentId: currentAllocation.paymentId })
-          };
-          
-          const allocationsCollection = collection(db, "roomAllocations");
-          await addDoc(allocationsCollection, restoredAllocation);
-        }
-      } catch (restoreError) {
-        console.error("Failed to restore old allocation:", restoreError);      }
-      
-      throw error;
-      }
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || `Failed to change room: ${res.statusText}`);
     }
-
   } catch (error) {
     console.error("Error changing room allocation:", error);
     throw error;
