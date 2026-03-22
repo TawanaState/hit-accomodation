@@ -6,6 +6,7 @@ import 'react-toastify/dist/ReactToastify.css'
 const inter = Inter({ subsets: ["latin"] });
 import { AuthProvider } from "@/components/auth-provider";
 import { PaymentSchedulerInit } from "@/components/payment-scheduler-init";
+import { SessionProvider } from "@/providers/SessionProvider";
 
 
 export const metadata: Metadata = {
@@ -21,13 +22,15 @@ export default function RootLayout({
   return (
     <html lang="en">      <body>
         <AuthProvider>
-          <PaymentSchedulerInit />
-          <ToastContainer />
-          <main className="w-full h-screen">
+          <SessionProvider>
+            <PaymentSchedulerInit />
+            <ToastContainer />
+            <main className="w-full h-screen">
+
+                {children}
             
-              {children}
-          
-          </main>
+            </main>
+          </SessionProvider>
         </AuthProvider>
       </body>
     </html>

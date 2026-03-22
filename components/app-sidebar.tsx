@@ -17,6 +17,7 @@ import {
   Building,
   Home,
   DollarSign,
+  CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +82,7 @@ export function AppSidebar() {
         // { title: "Archived", icon: Archive, href: "/admin/archived" },
         { title: "Reports", icon: Archive, href: "/admin/reports" },
         { title: "Activity logs", icon: Activity, href: "/admin/logs" },
+        { title: "Sessions", icon: CalendarDays, href: "/admin/sessions" },
         {title: "Settings", icon: Settings, href: "/admin/settings"}
       );
     }
