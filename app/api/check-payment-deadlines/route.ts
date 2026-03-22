@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { revokeRoomAllocation, fetchHostelSettings } from '@/data/hostel-data';
-import { RoomAllocation, HostelSettings } from '@/types/hostel';
+import dbConnect from "@/lib/mongodb";
+import { Allocation } from "@/models/Allocation";
+import { Room } from "@/models/Room";
+import { Hostel } from "@/models/Hostel";
 
-/**
- * API route to check and revoke expired room allocations
- * This should be called periodically (daily) to automatically manage unpaid allocations
- */
+// Mocking settings since there's no Settings model in MongoDB yet
+const getHostelSettings = async () => {
+  return {
+    paymentGracePeriod: 168, // 168 hours = 7 days
+    autoRevokeUnpaidAllocations: true,
+  };
+};
+
 export async function POST(req: Request) {
   try {
-    // Basic security check for automated calls
     const authHeader = req.headers.get('authorization');
     const expectedToken = process.env.PAYMENT_CHECK_TOKEN || 'default-secure-token';
     
@@ -22,8 +25,8 @@ export async function POST(req: Request) {
       }, { status: 401 });
     }
 
-    // Fetch hostel settings to check if auto-revoke is enabled
-    const settings = await fetchHostelSettings();
+    await dbConnect();
+    const settings = await getHostelSettings();
     
     if (!settings.autoRevokeUnpaidAllocations) {
       return NextResponse.json({ 
@@ -32,54 +35,61 @@ export async function POST(req: Request) {
       }, { status: 200 });
     }
 
-    // Get current date
     const now = new Date();
     
-    // Fetch all allocations with unpaid status
-    const allocationsCollection = collection(db, "roomAllocations");
-    const unpaidQuery = query(
-      allocationsCollection,
-      where("paymentStatus", "in", ["Pending", "Overdue"])
-    );
+    const unpaidAllocations = await Allocation.find({
+      paymentStatus: { $in: ["Pending", "Overdue"] }
+    });
+
+    const expiredAllocations = [];
     
-    const unpaidAllocationsSnap = await getDocs(unpaidQuery);
-    const expiredAllocations: RoomAllocation[] = [];      // Check which allocations have expired deadlines
-    unpaidAllocationsSnap.docs.forEach(doc => {
-      const allocation = { id: doc.id, ...doc.data() } as RoomAllocation;
+    for (const allocation of unpaidAllocations) {
       const deadlineDate = new Date(allocation.paymentDeadline);
-      
-      // Add grace period in hours (deadline is set to grace period value, so total time = deadline + grace period = 2x grace period)
       deadlineDate.setHours(deadlineDate.getHours() + settings.paymentGracePeriod);
       
       if (now > deadlineDate) {
         expiredAllocations.push(allocation);
       }
-    });
+    }
 
     console.log(`Found ${expiredAllocations.length} expired allocations to revoke`);
     
-    // Revoke expired allocations
-    const revokePromises = expiredAllocations.map(async (allocation) => {
+    const results = await Promise.all(expiredAllocations.map(async (allocation) => {
       try {
-        await revokeRoomAllocation(allocation.id);
-        console.log(`Revoked allocation ${allocation.id} for student ${allocation.studentRegNumber}`);
+        // Revoke logic
+        const room = await Room.findById(allocation.room);
+        if (room) {
+          room.occupants = room.occupants.filter(reg => reg !== allocation.studentRegNumber);
+          room.isAvailable = true; // since it was revoked, it's open again
+          await room.save();
+
+          const hostel = await Hostel.findById(allocation.hostel);
+          if (hostel) {
+            hostel.currentOccupancy = Math.max(0, hostel.currentOccupancy - 1);
+            await hostel.save();
+          }
+        }
+
+        await Allocation.findByIdAndDelete(allocation._id);
+
+        console.log(`Revoked allocation ${allocation._id} for student ${allocation.studentRegNumber}`);
+
         return {
-          allocationId: allocation.id,
+          allocationId: allocation._id,
           studentRegNumber: allocation.studentRegNumber,
           success: true
         };
       } catch (error) {
-        console.error(`Failed to revoke allocation ${allocation.id}:`, error);
+        console.error(`Failed to revoke allocation ${allocation._id}:`, error);
         return {
-          allocationId: allocation.id,
+          allocationId: allocation._id,
           studentRegNumber: allocation.studentRegNumber,
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
-    });
+    }));
     
-    const results = await Promise.all(revokePromises);
     const successCount = results.filter(r => r.success).length;
     const failureCount = results.filter(r => !r.success).length;
     
@@ -100,30 +110,19 @@ export async function POST(req: Request) {
   }
 }
 
-/**
- * GET route to check status without revoking (for testing/monitoring)
- */
 export async function GET() {
   try {
-    const settings = await fetchHostelSettings();
+    await dbConnect();
+    const settings = await getHostelSettings();
     const now = new Date();
     
-    // Fetch all allocations with unpaid status
-    const allocationsCollection = collection(db, "roomAllocations");
-    const unpaidQuery = query(
-      allocationsCollection,
-      where("paymentStatus", "in", ["Pending", "Overdue"])
-    );
+    const unpaidAllocations = await Allocation.find({
+      paymentStatus: { $in: ["Pending", "Overdue"] }
+    });
+
+    const expiredAllocations = [];
     
-    const unpaidAllocationsSnap = await getDocs(unpaidQuery);    const expiredAllocations: Array<{
-      id: string;
-      studentRegNumber: string;
-      paymentDeadline: string;
-      hoursOverdue: number;
-    }> = [];
-      // Check which allocations have expired deadlines
-    unpaidAllocationsSnap.docs.forEach(doc => {
-      const allocation = { id: doc.id, ...doc.data() } as RoomAllocation;
+    for (const allocation of unpaidAllocations) {
       const deadlineDate = new Date(allocation.paymentDeadline);
       const gracePeriodEnd = new Date(deadlineDate);
       gracePeriodEnd.setHours(gracePeriodEnd.getHours() + settings.paymentGracePeriod);
@@ -131,18 +130,18 @@ export async function GET() {
       if (now > gracePeriodEnd) {
         const hoursOverdue = Math.floor((now.getTime() - gracePeriodEnd.getTime()) / (1000 * 60 * 60));
         expiredAllocations.push({
-          id: allocation.id,
+          id: allocation._id,
           studentRegNumber: allocation.studentRegNumber,
           paymentDeadline: allocation.paymentDeadline,
           hoursOverdue: hoursOverdue
         });
       }
-    });
+    }
     
     return NextResponse.json({
       autoRevokeEnabled: settings.autoRevokeUnpaidAllocations,
       paymentGracePeriod: settings.paymentGracePeriod,
-      totalUnpaidAllocations: unpaidAllocationsSnap.docs.length,
+      totalUnpaidAllocations: unpaidAllocations.length,
       expiredAllocations: expiredAllocations.length,
       expiredDetails: expiredAllocations
     }, { status: 200 });
