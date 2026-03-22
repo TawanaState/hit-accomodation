@@ -51,7 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Combobox } from "./ui/combobox";
 import { programmes } from "@/data/programmes";
-import { findStudentByRegNumber, type StudentData } from "@/data/firebase-student-data";
+import { findStudentByRegNumber, type StudentData } from "@/data/student-data";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -211,7 +211,7 @@ const StudentProfileForm: React.FC<{}> = () => {
     }
   };
   const handleOnboardingComplete = (studentData: Student) => {
-    // Just prefill the form with the student data, don't save to Firebase yet
+    // Just prefill the form with the student data, don't save to the database yet
     form.reset({
       name: studentData.name,
       phone: studentData.phone,

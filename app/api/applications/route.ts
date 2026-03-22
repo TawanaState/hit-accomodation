@@ -3,12 +3,12 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { Application } from "@/models/Application";
-import { fetchAllStudentsFromFirebase } from "@/data/firebase-student-data";
+import { fetchAllStudentsFromAPI } from "@/data/student-data";
 
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    // Add admin check, same as Firebase rules
+    // Add admin check, same as legacy rules
     if (!session || session.user.role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
       .sort({ submittedAt: -1 })
       .lean();
 
-    // Removing Firebase to pass build. We will depend on the existing applications' student details
+    // Removing legacy data to pass build. We will depend on the existing applications' student details
     // or look them up from Mongo `StudentProfile`. Wait, let's use StudentProfile model from Mongo.
     let studentsMap = new Map<string, any>();
     try {
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
         submittedAt: app.submittedAt,
         date,
         time,
-        // The firebase-data.ts expected name, gender, programme, etc.
+        // The application-data.ts expected name, gender, programme, etc.
         name: studentData ? `${studentData.name} ${studentData.surname}` : `Student ${app.regNumber}`,
         gender: studentData?.gender || "Unknown",
         programme: studentData?.programme || "N/A",

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectItem, SelectTrigger, SelectContent, SelectValue } from "@/components/ui/select";
 import { Table, TableHead, TableRow, TableCell, TableBody } from "@/components/ui/table";
 import * as XLSX from "xlsx";
-import { fetchAllStudentsFromStudentsCollection as fetchAllStudents } from "@/data/firebase-data";
+import { fetchAllStudentsFromStudentsCollection as fetchAllStudents } from "@/data/application-data";
 import { fetchHostels } from "@/data/hostel-data";
 import { fetchAllPayments } from "@/data/payment-data";
 import { Hostel, Room, Payment } from "@/types/hostel";

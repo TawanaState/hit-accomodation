@@ -8,7 +8,7 @@ export interface StudentData {
   part: "1" | "2" | "3" | "4" | "5";
   phone?: string;
   email?: string;
-  // Additional fields for Firebase version
+  // Additional fields for legacy data version
   createdAt?: string;
   updatedAt?: string;
   migrationSource?: string;
@@ -32,7 +32,7 @@ const getBaseUrl = () => {
 /**
  * Fetch all students from Next.js API
  */
-export const fetchAllStudentsFromFirebase = async (): Promise<StudentData[]> => {
+export const fetchAllStudentsFromAPI = async (): Promise<StudentData[]> => {
   try {
     const now = Date.now();
     
@@ -111,7 +111,7 @@ export const findStudentByRegNumber = async (regNumber: string): Promise<Student
  */
 export const getStudentsByProgramme = async (programme: string): Promise<StudentData[]> => {
   try {
-    const students = await fetchAllStudentsFromFirebase();
+    const students = await fetchAllStudentsFromAPI();
     return students.filter(student => student.programme === programme);
   } catch (error) {
     console.error("Error fetching students by programme:", error);
@@ -124,7 +124,7 @@ export const getStudentsByProgramme = async (programme: string): Promise<Student
  */
 export const getStudentsByGender = async (gender: "Male" | "Female"): Promise<StudentData[]> => {
   try {
-    const students = await fetchAllStudentsFromFirebase();
+    const students = await fetchAllStudentsFromAPI();
     return students.filter(student => student.gender === gender);
   } catch (error) {
     console.error("Error fetching students by gender:", error);
@@ -137,7 +137,7 @@ export const getStudentsByGender = async (gender: "Male" | "Female"): Promise<St
  */
 export const getStudentsByPart = async (part: "1" | "2" | "3" | "4" | "5"): Promise<StudentData[]> => {
   try {
-    const students = await fetchAllStudentsFromFirebase();
+    const students = await fetchAllStudentsFromAPI();
     return students.filter(student => student.part === part);
   } catch (error) {
     console.error("Error fetching students by part:", error);
@@ -150,7 +150,7 @@ export const getStudentsByPart = async (part: "1" | "2" | "3" | "4" | "5"): Prom
  */
 export const getStudentStats = async () => {
   try {
-    const students = await fetchAllStudentsFromFirebase();
+    const students = await fetchAllStudentsFromAPI();
     const total = students.length;
     const maleCount = students.filter(s => s.gender === "Male").length;
     const femaleCount = students.filter(s => s.gender === "Female").length;
@@ -177,7 +177,7 @@ export const getStudentStats = async () => {
  */
 export const searchStudents = async (searchTerm: string): Promise<StudentData[]> => {
   try {
-    const students = await fetchAllStudentsFromFirebase();
+    const students = await fetchAllStudentsFromAPI();
     const term = searchTerm.toLowerCase();
     
     return students.filter(student => 
@@ -219,7 +219,7 @@ export const clearStudentCache = (): void => {
  */
 export const preloadStudentData = async (): Promise<void> => {
   try {
-    await fetchAllStudentsFromFirebase();
+    await fetchAllStudentsFromAPI();
     console.log("Student data preloaded into cache");
   } catch (error) {
     console.error("Error preloading student data:", error);

@@ -23,7 +23,7 @@ export async function PUT(
     await dbConnect();
 
     // The id passed might be regNumber or Mongoose _id.
-    // In firebase, it was regNumber.
+    // In legacy data, it was regNumber.
     const regNumber = params.id;
 
     // Update the application status
