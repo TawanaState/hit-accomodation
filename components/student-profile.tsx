@@ -155,8 +155,8 @@ const StudentProfileForm: React.FC<{}> = () => {
             userName: profileData.name || user.displayName || "",
             regNumber: profileData.regNumber || "",
           }));
-        } else {
-          // If no profile, we either show edit mode for hit.ac.zw users, or onboarding for gmail
+        } else if (res.status === 404) {
+          // If no profile, we either show edit mode for hit.ac.zw users, or onboarding for others
           if (emailDomain === "hit.ac.zw") {
             regNumber = user.email?.split("@")[0] || "";
             setAuthDetails((prev) => ({ ...prev, regNumber }));
@@ -169,12 +169,24 @@ const StudentProfileForm: React.FC<{}> = () => {
               programme: "",
             });
             setIsEditing(true);
-          } else if (emailDomain === "gmail.com" && user.email) {
-            setNeedsOnboarding(true);
+          } else {
+            // For gmail or other domains, just show the blank form in edit mode
+            setAuthDetails((prev) => ({ ...prev, regNumber: "" }));
+            form.reset({
+              name: user.displayName || "",
+              phone: "",
+              regNumber: "",
+              gender: "Male",
+              part: "1",
+              programme: "",
+            });
+            setIsEditing(true);
           }
+        } else {
+          toast.error("Error fetching profile data.");
         }
       } catch (error) {
-        toast.error("Error fetching profile");
+        toast.error("Error connecting to server.");
         console.error(error);
       } finally {
         setIsLoading(false);

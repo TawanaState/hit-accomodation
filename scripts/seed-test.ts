@@ -40,7 +40,6 @@ async function runSeed() {
 
     // 2. Create a User
     const user = await User.create({
-      firebaseUid: 'firebase_test_uid_123',
       email: 'testuser@hit.ac.zw',
       displayName: 'Test User',
       role: 'user',
