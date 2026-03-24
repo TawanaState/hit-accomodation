@@ -78,8 +78,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    fetchSessions();
-  }, [user, role, authLoading]);
+    if (!authLoading && user) {
+      fetchSessions();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email, role, authLoading]);
 
   const setSelectedSessionId = (id: string) => {
     if (role !== "admin") return; // Students can't change session context

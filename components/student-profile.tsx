@@ -193,8 +193,13 @@ const StudentProfileForm: React.FC<{}> = () => {
       }
     };
 
-    fetchProfile();
-    }, [form]);  const handleRegNumberSubmit = async () => {
+    if (!authLoading && user) {
+      fetchProfile();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user?.email]);
+
+  const handleRegNumberSubmit = async () => {
     setIsSearching(true);
     setOnboardingError("");
 
