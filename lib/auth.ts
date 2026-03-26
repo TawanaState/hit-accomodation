@@ -21,6 +21,16 @@ export const authOptions: AuthOptions = {
       if (account?.provider === "google") {
         await dbConnect();
 
+        // Drop the legacy firebaseUid index if it exists, to avoid E11000 duplicate key error
+        try {
+          await User.collection.dropIndex('firebaseUid_1');
+        } catch (e: any) {
+          // Ignore if the index does not exist
+          if (e.codeName !== 'IndexNotFound') {
+            console.error("Error dropping legacy firebaseUid index:", e);
+          }
+        }
+
         // Find existing user or update
         const existingUser = await User.findOne({ email: user.email });
 

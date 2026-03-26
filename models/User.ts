@@ -1,7 +1,6 @@
 import mongoose, { Document, Model, Schema } from 'mongoose';
 
 export interface IUser extends Document {
-  firebaseUid: string;
   email: string;
   displayName?: string;
   role: 'user' | 'admin';
@@ -11,12 +10,6 @@ export interface IUser extends Document {
 
 const userSchema = new Schema<IUser>(
   {
-    firebaseUid: {
-      type: String,
-      required: true,
-      unique: true,
-      index: true,
-    },
     email: {
       type: String,
       required: true,
