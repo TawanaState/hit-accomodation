@@ -5,6 +5,8 @@ import dbConnect from "@/lib/mongodb";
 import { Payment } from "@/models/Payment";
 import { User } from "@/models/User";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { regNumber: string } }

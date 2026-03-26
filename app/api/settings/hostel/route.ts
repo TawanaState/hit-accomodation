@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 
+export const dynamic = "force-dynamic";
+
 // Mock for now or read from Settings collection once it exists
 export async function GET() {
   try {

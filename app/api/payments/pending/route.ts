@@ -3,6 +3,9 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { Payment } from "@/models/Payment";
+import { Session } from "@/models/Session";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,9 +14,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const sessionId = searchParams.get("sessionId");
+
     await dbConnect();
 
-    const payments = await Payment.find({ status: 'Pending' }).sort({ submittedAt: 1 }).lean();
+    let query: any = { status: 'Pending' };
+    if (sessionId) {
+      query.session = sessionId;
+    } else {
+      const activeSession = await Session.findOne({ isActive: true }).lean();
+      if (activeSession) {
+        query.session = activeSession._id;
+      }
+    }
+
+    const payments = await Payment.find(query).sort({ submittedAt: 1 }).lean();
 
     const formattedPayments = payments.map((payment) => ({
       ...payment,

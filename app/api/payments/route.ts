@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { Payment } from "@/models/Payment";
 import { Allocation } from "@/models/Allocation";
+import { Session } from "@/models/Session";
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,10 +13,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const sessionId = searchParams.get("sessionId");
+
     await dbConnect();
 
-    // Fetch all payments
-    const payments = await Payment.find().sort({ submittedAt: -1 }).lean();
+    let query: any = {};
+    if (sessionId) {
+      query.session = sessionId;
+    } else {
+      const activeSession = await Session.findOne({ isActive: true }).lean();
+      if (activeSession) {
+        query.session = activeSession._id;
+      }
+    }
+
+    // Fetch all payments matching the session
+    const payments = await Payment.find(query).sort({ submittedAt: -1 }).lean();
 
     const formattedPayments = payments.map((payment) => ({
       ...payment,

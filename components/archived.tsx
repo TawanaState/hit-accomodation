@@ -13,6 +13,7 @@ import {
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { toast } from "react-toastify";
+import { useSessionContext } from "@/providers/SessionProvider";
 
 const SkeletonRow = () => (
   <TableRow>
@@ -35,11 +36,14 @@ const Archived = () => {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [applications, setApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const { selectedSession } = useSessionContext();
 
   useEffect(() => {
     const fetchApplications = async () => {
+      if (!selectedSession) return;
+      setLoading(true);
       try {
-        const response = await fetch("/api/applications");
+        const response = await fetch(`/api/applications?sessionId=${selectedSession._id}`);
         if (!response.ok) throw new Error("Failed to fetch applications");
         const apps = await response.json();
         setApplications(apps);
@@ -52,7 +56,7 @@ const Archived = () => {
     };
 
     fetchApplications();
-  }, []);
+  }, [selectedSession]);
 
   const archivedApplications = useMemo(() => {
     return applications.filter(

@@ -58,8 +58,10 @@ const Applications = () => {
 
   useEffect(() => {
     const fetchApplications = async () => {
+      if (!selectedSession) return;
+      setLoading(true);
       try {
-        const apps = await fetchAllApplications()
+        const apps = await fetchAllApplications(selectedSession._id as unknown as string)
         setApplications(apps)
       } catch (error) {
         console.error("Error fetching applications:", error)
@@ -69,7 +71,7 @@ const Applications = () => {
     }
 
     fetchApplications()
-  }, [])
+  }, [selectedSession])
 
   const handleStatusChange = async (regNumber: string, newStatus: "Accepted" | "Archived" | "Pending" | "Rejected") => {
     try {

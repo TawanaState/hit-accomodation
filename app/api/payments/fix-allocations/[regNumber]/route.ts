@@ -7,6 +7,8 @@ import { Allocation } from "@/models/Allocation";
 import { Room } from "@/models/Room";
 import { Hostel } from "@/models/Hostel";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { regNumber: string } }

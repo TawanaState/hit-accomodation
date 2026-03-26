@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { ActivityLog } from "@/models/ActivityLog";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -98,4 +100,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-export const dynamic = "force-dynamic";

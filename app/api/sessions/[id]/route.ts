@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { Session } from "@/models/Session";
 
+export const dynamic = "force-dynamic";
+
 export async function PUT(
   req: Request,
   { params }: { params: { id: string } }
@@ -47,6 +49,10 @@ export async function PUT(
   }
 }
 
+import { Application } from "@/models/Application";
+import { Allocation } from "@/models/Allocation";
+import { Payment } from "@/models/Payment";
+
 export async function DELETE(
   req: Request,
   { params }: { params: { id: string } }
@@ -70,6 +76,13 @@ export async function DELETE(
         { status: 404 }
       );
     }
+
+    // Cascade delete related data
+    await Promise.all([
+      Application.deleteMany({ session: id }),
+      Allocation.deleteMany({ session: id }),
+      Payment.deleteMany({ session: id })
+    ]);
 
     return NextResponse.json({ message: "Session deleted successfully" });
   } catch (error) {

@@ -5,6 +5,8 @@ import dbConnect from "@/lib/mongodb";
 import { Application } from "@/models/Application";
 import { fetchAllStudentsFromFirebase } from "@/data/firebase-student-data";
 
+import { Session } from "@/models/Session";
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -13,10 +15,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const sessionId = searchParams.get("sessionId");
+
     await dbConnect();
 
-    // Fetch all applications from MongoDB
-    const applications = await Application.find()
+    let query: any = {};
+    if (sessionId) {
+      query.session = sessionId;
+    } else {
+      const activeSession = await Session.findOne({ isActive: true }).lean();
+      if (activeSession) {
+        query.session = activeSession._id;
+      }
+    }
+
+    // Fetch applications from MongoDB matching the session
+    const applications = await Application.find(query)
       .populate("session")
       .sort({ submittedAt: -1 })
       .lean();
@@ -66,6 +81,7 @@ export async function GET(req: NextRequest) {
         part: studentData?.part || 1,
         email: studentData?.email || `${app.regNumber}@hit.ac.zw`,
         phone: studentData?.phone || "",
+        session: app.session,
       };
     });
 

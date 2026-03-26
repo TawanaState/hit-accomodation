@@ -13,15 +13,17 @@ export type Applications = {
   time: string; // New field for time
   paymentStatus: string;
   reference: string;
+  session?: any;
 };
 
 /**
  * Fetches all student profiles and their application data
  * Refactored to use the new MongoDB-backed API route.
  */
-export const fetchAllApplications = async (): Promise<Applications[]> => {
+export const fetchAllApplications = async (sessionId?: string): Promise<Applications[]> => {
   try {
-    const res = await fetch("/api/applications", {
+    const url = sessionId ? `/api/applications?sessionId=${sessionId}` : "/api/applications";
+    const res = await fetch(url, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",

@@ -7,6 +7,8 @@ import { StudentProfile } from "@/models/StudentProfile";
 import { Session } from "@/models/Session";
 import { Settings } from "@/models/Settings";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);

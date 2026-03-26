@@ -7,6 +7,8 @@ import { Hostel } from "@/models/Hostel";
 import { Allocation } from "@/models/Allocation";
 import { Session } from "@/models/Session";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);

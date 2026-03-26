@@ -8,6 +8,8 @@ import { Allocation } from "@/models/Allocation";
 import { Session } from "@/models/Session";
 import mongoose from "mongoose";
 
+export const dynamic = "force-dynamic";
+
 export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);

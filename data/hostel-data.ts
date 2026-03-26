@@ -273,9 +273,12 @@ export const fetchStudentProfile = async (studentRegNumber: string): Promise<{ge
 /**
  * Fetch room allocations for a student
  */
-export const fetchStudentAllocations = async (studentRegNumber: string): Promise<RoomAllocation[]> => {
+export const fetchStudentAllocations = async (studentRegNumber: string, sessionId?: string): Promise<RoomAllocation[]> => {
   try {
-    const res = await fetch(`${getBaseUrl()}/api/allocations?studentRegNumber=${studentRegNumber}`);
+    const url = sessionId
+      ? `${getBaseUrl()}/api/allocations?studentRegNumber=${studentRegNumber}&sessionId=${sessionId}`
+      : `${getBaseUrl()}/api/allocations?studentRegNumber=${studentRegNumber}`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error("Failed to fetch student allocations");
     return await res.json();
   } catch (error) {

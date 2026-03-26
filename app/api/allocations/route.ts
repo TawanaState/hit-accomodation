@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const studentRegNumber = searchParams.get("studentRegNumber");
+    const sessionId = searchParams.get("sessionId");
 
     if (!studentRegNumber) {
       return NextResponse.json(
@@ -27,12 +28,14 @@ export async function GET(req: NextRequest) {
 
     await dbConnect();
 
-    // Find the active session
-    const activeSession = await Session.findOne({ isActive: true });
-
-    let sessionFilter = {};
-    if (activeSession) {
-      sessionFilter = { session: activeSession._id };
+    let sessionFilter: any = {};
+    if (sessionId) {
+      sessionFilter.session = sessionId;
+    } else {
+      const activeSession = await Session.findOne({ isActive: true });
+      if (activeSession) {
+        sessionFilter.session = activeSession._id;
+      }
     }
 
     // Find allocations for the student

@@ -73,9 +73,12 @@ export const fetchStudentPayments = async (studentRegNumber: string): Promise<Pa
 /**
  * Fetch all payments (admin function)
  */
-export const fetchAllPayments = async (): Promise<Payment[]> => {
+export const fetchAllPayments = async (sessionId?: string): Promise<Payment[]> => {
   try {
-    const res = await fetch(`${getBaseUrl()}/api/payments`);
+    const url = sessionId
+      ? `${getBaseUrl()}/api/payments?sessionId=${sessionId}`
+      : `${getBaseUrl()}/api/payments`;
+    const res = await fetch(url);
     if (!res.ok) {
       throw new Error('Failed to fetch all payments');
     }
@@ -89,9 +92,12 @@ export const fetchAllPayments = async (): Promise<Payment[]> => {
 /**
  * Fetch pending payments (admin function)
  */
-export const fetchPendingPayments = async (): Promise<Payment[]> => {
+export const fetchPendingPayments = async (sessionId?: string): Promise<Payment[]> => {
   try {
-    const res = await fetch(`${getBaseUrl()}/api/payments/pending`);
+    const url = sessionId
+      ? `${getBaseUrl()}/api/payments/pending?sessionId=${sessionId}`
+      : `${getBaseUrl()}/api/payments/pending`;
+    const res = await fetch(url);
     if (!res.ok) {
       throw new Error('Failed to fetch pending payments');
     }

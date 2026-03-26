@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { Allocation } from "@/models/Allocation";
+import { Session } from "@/models/Session";
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,9 +12,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const sessionId = searchParams.get("sessionId");
+
     await dbConnect();
 
-    const allocations = await Allocation.find().lean();
+    let query: any = {};
+    if (sessionId) {
+      query.session = sessionId;
+    } else {
+      const activeSession = await Session.findOne({ isActive: true }).lean();
+      if (activeSession) {
+        query.session = activeSession._id;
+      }
+    }
+
+    const allocations = await Allocation.find(query).lean();
 
     const formattedAllocations = allocations.map((allocation) => ({
       id: allocation._id.toString(),

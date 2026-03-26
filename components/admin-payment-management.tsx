@@ -37,6 +37,7 @@ import { fetchStudentAllocations, getRoomDetailsFromAllocation, fetchAllocationB
 import { Payment, RoomAllocation, Hostel } from '@/types/hostel';
 import BankingDetails from '@/components/banking-details';
 import { generateExcelFile } from '@/utils/generate_xl';
+import { useSessionContext } from '@/providers/SessionProvider';
 
 const AdminPaymentManagement: React.FC = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -73,20 +74,25 @@ const AdminPaymentManagement: React.FC = () => {
 
   const { data: session } = useSession();
   const adminEmail = session?.user?.email || '';
+  const { selectedSession } = useSessionContext();
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (selectedSession) {
+      loadData();
+    }
+  }, [selectedSession]);
   
   const loadData = async () => {
+    if (!selectedSession) return;
     try {
       setLoading(true);
       // Fetch all data in parallel
+      const sessionIdStr = selectedSession._id as unknown as string;
       const [allPayments, pendingPayments, hostels, allocationsRes] = await Promise.all([
-        fetchAllPayments(),
-        fetchPendingPayments(),
+        fetchAllPayments(sessionIdStr),
+        fetchPendingPayments(sessionIdStr),
         fetchHostels(),
-        fetch('/api/allocations-all').then(r => r.json()).catch(() => [])
+        fetch(`/api/allocations-all?sessionId=${sessionIdStr}`).then(r => r.json()).catch(() => [])
       ]);
 
       const allocations = Array.isArray(allocationsRes) ? allocationsRes : [];

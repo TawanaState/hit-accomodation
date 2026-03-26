@@ -5,6 +5,8 @@ import dbConnect from "@/lib/mongodb";
 import { Payment } from "@/models/Payment";
 import { Allocation } from "@/models/Allocation";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
