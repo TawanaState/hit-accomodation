@@ -442,48 +442,48 @@ const AdminHostelManagement: React.FC = () => {
       
       // Update selectedHostel state immediately
       if (selectedHostel && selectedHostel.id === newRoomsForm.hostelId) {
-        const updatedHostel = { ...selectedHostel };
-        const floor = updatedHostel.floors.find(f => f.id === newRoomsForm.floorId);
-        if (floor) {
-          // Create new rooms to add to the floor
-          const newRooms = [];
-          let totalCapacityAdded = 0;
-          
-          for (let i = newRoomsForm.startNumber; i <= newRoomsForm.endNumber; i++) {
-            const roomNumber = `${newRoomsForm.prefix}${i}${newRoomsForm.suffix}`;
-            const roomId = `${newRoomsForm.hostelId}_${newRoomsForm.floorId}_${roomNumber}`;
-            
-            // Check if room already exists
-            const existingRoom = floor.rooms.find(r => r.number === roomNumber);
-            if (!existingRoom) {
-              const newRoom = {
-                id: roomId,
-                number: roomNumber,
-                floor: floor.name,
-                floorName: floor.name,
-                hostelName: updatedHostel.name,
-                price: updatedHostel.pricePerSemester,
-                capacity: newRoomsForm.capacity,
-                occupants: [],
-                gender: newRoomsForm.gender,
-                isReserved: false,
-                isAvailable: true,
-                features
-              };
+        let capacityAdded = 0;
+        const updatedFloors = selectedHostel.floors.map(floor => {
+          if (floor.id === newRoomsForm.floorId) {
+            const newRooms = [];
+            for (let i = newRoomsForm.startNumber; i <= newRoomsForm.endNumber; i++) {
+              const roomNumber = `${newRoomsForm.prefix}${i}${newRoomsForm.suffix}`;
+              const roomId = `${newRoomsForm.hostelId}_${newRoomsForm.floorId}_${roomNumber}`;
               
-              newRooms.push(newRoom);
-              totalCapacityAdded += newRoomsForm.capacity;
+              const existingRoom = floor.rooms.find(r => r.number === roomNumber);
+              if (!existingRoom) {
+                const newRoom: Room = {
+                  id: roomId,
+                  number: roomNumber,
+                  floor: floor.name,
+                  floorName: floor.name,
+                  hostelName: selectedHostel.name,
+                  price: selectedHostel.pricePerSemester,
+                  capacity: newRoomsForm.capacity,
+                  occupants: [],
+                  gender: newRoomsForm.gender,
+                  isReserved: false,
+                  isAvailable: true,
+                  features
+                };
+                newRooms.push(newRoom);
+                capacityAdded += newRoomsForm.capacity;
+              }
             }
+            return {
+              ...floor,
+              rooms: [...floor.rooms, ...newRooms]
+            };
           }
-          
-          // Add new rooms to the floor
-          floor.rooms.push(...newRooms);
-          
-          // Update total capacity
-          updatedHostel.totalCapacity += totalCapacityAdded;
-          
-          setSelectedHostel(updatedHostel);
-        }
+          return floor;
+        });
+
+        const updatedHostel = {
+          ...selectedHostel,
+          totalCapacity: selectedHostel.totalCapacity + capacityAdded,
+          floors: updatedFloors
+        };
+        setSelectedHostel(updatedHostel);
       }
       
       setNewRoomsForm({
