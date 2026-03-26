@@ -37,16 +37,12 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    // Start a transaction
-    const mongooseSession = await mongoose.startSession();
-    mongooseSession.startTransaction();
-
     try {
       // 1. Get current allocation
       const currentAllocation = await Allocation.findOne({
         studentRegNumber,
         session: activeSession._id,
-      }).session(mongooseSession);
+      });
 
       if (!currentAllocation) {
         throw new Error("No existing allocation found for this student");
@@ -64,13 +60,13 @@ export async function PUT(req: NextRequest) {
       }
 
       // 2. Validate current hostel
-      const currentHostel = await Hostel.findById(currentHostelId).session(mongooseSession);
+      const currentHostel = await Hostel.findById(currentHostelId);
       if (!currentHostel) {
         throw new Error("Current hostel not found");
       }
 
       // 3. Validate new hostel
-      const newHostel = await Hostel.findById(newHostelId).session(mongooseSession);
+      const newHostel = await Hostel.findById(newHostelId);
       if (!newHostel) {
         throw new Error("Target hostel not found");
       }
@@ -80,7 +76,7 @@ export async function PUT(req: NextRequest) {
       }
 
       // 4. Validate new room
-      const newRoom = await Room.findById(newRoomId).session(mongooseSession);
+      const newRoom = await Room.findById(newRoomId);
       if (!newRoom) {
         throw new Error("Target room not found");
       }
@@ -94,11 +90,11 @@ export async function PUT(req: NextRequest) {
       }
 
       // 5. Update old room
-      const oldRoom = await Room.findById(currentRoomId).session(mongooseSession);
+      const oldRoom = await Room.findById(currentRoomId);
       if (oldRoom) {
         oldRoom.occupants = oldRoom.occupants.filter(reg => reg !== studentRegNumber);
         oldRoom.isAvailable = true;
-        await oldRoom.save({ session: mongooseSession });
+        await oldRoom.save();
       }
 
       // 6. Update new room
@@ -106,35 +102,28 @@ export async function PUT(req: NextRequest) {
       if (newRoom.occupants.length >= newRoom.capacity) {
         newRoom.isAvailable = false;
       }
-      await newRoom.save({ session: mongooseSession });
+      await newRoom.save();
 
       // 7. Update hostel occupancies if cross-hostel (admin only)
       if (currentHostelId !== newHostelId) {
          currentHostel.currentOccupancy = Math.max(0, currentHostel.currentOccupancy - 1);
-         await currentHostel.save({ session: mongooseSession });
+         await currentHostel.save();
 
          newHostel.currentOccupancy += 1;
-         await newHostel.save({ session: mongooseSession });
+         await newHostel.save();
       }
 
       // 8. Update Allocation document
       currentAllocation.room = new mongoose.Types.ObjectId(newRoomId);
       currentAllocation.hostel = new mongoose.Types.ObjectId(newHostelId);
       currentAllocation.allocatedAt = new Date();
-      await currentAllocation.save({ session: mongooseSession });
-
-      // Commit transaction
-      await mongooseSession.commitTransaction();
-      mongooseSession.endSession();
+      await currentAllocation.save();
 
       return NextResponse.json(currentAllocation);
-    } catch (transactionError: any) {
-      // Abort transaction on error
-      await mongooseSession.abortTransaction();
-      mongooseSession.endSession();
-      console.error("Transaction Error:", transactionError.message);
+    } catch (operationError: any) {
+      console.error("Operation Error:", operationError.message);
       return NextResponse.json(
-        { error: transactionError.message || "Room change failed" },
+        { error: operationError.message || "Room change failed" },
         { status: 400 }
       );
     }

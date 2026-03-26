@@ -98,23 +98,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Start a transaction
-    const mongooseSession = await mongoose.startSession();
-    mongooseSession.startTransaction();
-
     try {
       // 1. Check if the student already has an allocation in the current session
       const existingAllocation = await Allocation.findOne({
         studentRegNumber,
         session: activeSession._id,
-      }).session(mongooseSession);
+      });
 
       if (existingAllocation) {
         throw new Error("Student already has an allocation for this session");
       }
 
       // 2. Fetch and check room availability
-      const room = await Room.findById(roomId).session(mongooseSession);
+      const room = await Room.findById(roomId);
       if (!room) {
         throw new Error("Room not found");
       }
@@ -128,7 +124,7 @@ export async function POST(req: NextRequest) {
       }
 
       // 3. Fetch Hostel to update current occupancy
-      const hostel = await Hostel.findById(hostelId).session(mongooseSession);
+      const hostel = await Hostel.findById(hostelId);
       if (!hostel) {
         throw new Error("Hostel not found");
       }
@@ -138,11 +134,11 @@ export async function POST(req: NextRequest) {
       if (room.occupants.length >= room.capacity) {
         room.isAvailable = false;
       }
-      await room.save({ session: mongooseSession });
+      await room.save();
 
       // 5. Update hostel occupancy
       hostel.currentOccupancy += 1;
-      await hostel.save({ session: mongooseSession });
+      await hostel.save();
 
       // 6. Create the Allocation document
       const paymentGracePeriodDays = 7; // Usually fetched from settings, default 7 days
@@ -154,26 +150,17 @@ export async function POST(req: NextRequest) {
       // We can infer semester from the session code or date, assuming Semester 1 for now or fetching from session metadata.
       const semester = "Semester 1";
 
-      const [newAllocation] = await Allocation.create(
-        [
-          {
-            studentRegNumber,
-            room: roomId,
-            hostel: hostelId,
-            session: activeSession._id,
-            allocatedAt: new Date(),
-            paymentStatus: "Pending",
-            paymentDeadline,
-            semester,
-            academicYear,
-          },
-        ],
-        { session: mongooseSession }
-      );
-
-      // Commit transaction
-      await mongooseSession.commitTransaction();
-      mongooseSession.endSession();
+      const newAllocation = await Allocation.create({
+        studentRegNumber,
+        room: roomId,
+        hostel: hostelId,
+        session: activeSession._id,
+        allocatedAt: new Date(),
+        paymentStatus: "Pending",
+        paymentDeadline,
+        semester,
+        academicYear,
+      });
 
       return NextResponse.json({
         id: newAllocation._id.toString(),
@@ -187,13 +174,10 @@ export async function POST(req: NextRequest) {
         semester: newAllocation.semester,
         academicYear: newAllocation.academicYear,
       });
-    } catch (transactionError: any) {
-      // Abort transaction on error
-      await mongooseSession.abortTransaction();
-      mongooseSession.endSession();
-      console.error("Transaction Error:", transactionError.message);
+    } catch (operationError: any) {
+      console.error("Operation Error:", operationError.message);
       return NextResponse.json(
-        { error: transactionError.message || "Allocation failed" },
+        { error: operationError.message || "Allocation failed" },
         { status: 400 }
       );
     }

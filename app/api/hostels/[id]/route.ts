@@ -52,6 +52,44 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const { id } = params;
     const body = await req.json();
 
+    // Check if floors have rooms array we need to extract and save as separate documents
+    if (body.floors && Array.isArray(body.floors)) {
+      for (const floor of body.floors) {
+        if (floor.rooms && Array.isArray(floor.rooms)) {
+          // Process rooms for this floor
+          for (const roomData of floor.rooms) {
+            // Upsert room
+            const roomQuery = roomData._id ? { _id: roomData._id } : { number: roomData.number, hostel: id, floor: floor.id || floor._id };
+            await Room.findOneAndUpdate(
+              roomQuery,
+              {
+                number: roomData.number,
+                hostel: id,
+                floor: floor.id || floor._id,
+                price: roomData.price,
+                capacity: roomData.capacity,
+                occupants: roomData.occupants || [],
+                gender: roomData.gender,
+                isReserved: roomData.isReserved || false,
+                reservedBy: roomData.reservedBy,
+                reservedUntil: roomData.reservedUntil,
+                isAvailable: roomData.isAvailable ?? true,
+                features: roomData.features || [],
+              },
+              { upsert: true, new: true }
+            );
+          }
+        }
+      }
+
+      // Remove the non-schema 'rooms' array from the floors before updating Hostel document
+      body.floors = body.floors.map((floor: any) => {
+        const { rooms, id, ...floorData } = floor;
+        if (id && !floorData._id) floorData._id = id; // Ensure _id is maintained
+        return floorData;
+      });
+    }
+
     const updatedHostel = await Hostel.findByIdAndUpdate(id, body, { new: true }).lean();
     if (!updatedHostel) {
       return NextResponse.json({ error: "Hostel not found" }, { status: 404 });

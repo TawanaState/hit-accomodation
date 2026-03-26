@@ -64,7 +64,7 @@ const RoomSelectionPage: React.FC = () => {
         }
 
         // Fetch application using API
-        const appRes = await fetch(`/api/applications/${regNumber}`);
+        const appRes = await fetch(`/api/applications/student`);
         if (appRes.ok) {
            const appData = await appRes.json();
            setApplication(appData);
